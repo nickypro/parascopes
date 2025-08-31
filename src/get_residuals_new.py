@@ -7,7 +7,7 @@ from tqdm import tqdm
 import numpy as np
 torch.set_grad_enabled(False)
 
-MAX_TOKENS = 2
+MAX_TOKENS = 8092
 
 # %%
 model = "llama-3b"
@@ -79,9 +79,15 @@ def get_act_data(split_text, act_types=None, verbose=False):
     final_indices_abs = np.cumsum(final_indices_rel) - 1
 
     # truncate to 8092 tokens
+    if verbose:
+        # Filter final indices to only include those within the truncated sequence
+        print(f"{final_indices_abs=}")
+
     all_tokens = all_tokens[:, :MAX_TOKENS]
-    # Filter final indices to only include those within the truncated sequence
-    final_indices_abs = [idx for idx in final_indices_abs if idx < MAX_TOKENS]
+    final_indices_abs = final_indices_abs[final_indices_abs < MAX_TOKENS]
+
+    if verbose:
+        print(f"{final_indices_abs=}")
 
     # check the tokens are actually the newline ones
     if verbose:
@@ -133,14 +139,18 @@ for i, data in enumerate(tqdm(dataset)):
     for i in range(m.cfg.n_layers):
         res.append(act_data[f"blocks.{i}.hook_resid_mid"])
         res.append(act_data[f"blocks.{i}.hook_resid_post"])
-    res = torch.cat(res, dim=0)[:, :-1, :] # we don't need the last residual stream
+
+    # print([x.shape for x in res])
+    res_tensor = torch.cat(res, dim=0) # we don't need the last residual stream
+
+    # print(res_tensor)
     batch.append({
         "index": data["index"],
         "split_text": data["split_text"],
-        "res": res.cpu(),
+        "res": res_tensor.cpu(),
     })
 
-    # print(res.shape)
+    # print(res_tensor.shape)
 
 batch_index += 1
 torch.save(batch, f"./tensors/{model}/res_data_{batch_index:03d}.pt")
