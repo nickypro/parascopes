@@ -7,7 +7,7 @@ from tqdm import tqdm
 import numpy as np
 torch.set_grad_enabled(False)
 
-MAX_TOKENS = 8092
+MAX_TOKENS = 2048
 
 # %%
 model = "llama-3b"
