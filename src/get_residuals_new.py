@@ -118,7 +118,7 @@ os.makedirs(f"./tensors/{model}", exist_ok=True)
 import os
 
 # Determine how many files exist in ./tensors
-existing_files = len([name for name in os.listdir("./tensors") if name.startswith("res_data_") and name.endswith(".pt")])
+existing_files = len([name for name in os.listdir(f"./tensors/{model}") if name.startswith("res_data_") and name.endswith(".pt")])
 skip_count = existing_files * 1000
 
 batch = []

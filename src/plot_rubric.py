@@ -92,7 +92,7 @@ def get_examples(data_dict, metric, shuffle=True, limit=10):
             examples[score] = examples[score][:limit]
     return examples
 
-def plot_score_proportions_interactive(data_dicts, metric):
+def plot_score_proportions_interactive(data_dicts, metric, colour_map=None):
     fig = go.Figure()
     df_proportions = pd.DataFrame()
 
@@ -115,7 +115,11 @@ def plot_score_proportions_interactive(data_dicts, metric):
             #base_color = f'rgba({label_index * 50 % 255}, {label_index * 80 %
             #255}, {label_index * 110 % 255}, 0.6)'
             # base_color = f'rgba({label_index * 50 % 255}, {label_index * 80 % 255}, {label_index * 110 % 255}, {(i+1)/len(proportions)})'
-            base_color = f'hsla({label_index * 150 % 360}, 50%, 50%, {(i+1)/len(proportions)})'
+            if colour_map is None:
+                base_color = f'hsla({label_index * 150 % 360}, 50%, 50%, {(i+1)/len(proportions)})'
+            else:
+                rgb = colour_map[label]
+                base_color = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {(i+1)/len(proportions)})'
 
             # Safely access examples
             hover_text = f"<br><b>Score:</b> {unique_scores[i]}"
@@ -156,7 +160,7 @@ def plot_score_proportions_interactive(data_dicts, metric):
     fig.update_layout(showlegend=False)
 
     # save png to ./figures
-    fig.write_image(f"./figures/score_distribution_{metric}.png")
+    fig.write_image(f"../figures/score_distribution_{metric}.png")
 
     fig.show(renderer="notebook_connected")
     # Create a nicely formatted table showing score distributions
@@ -194,17 +198,83 @@ if __name__ == "__main__":
 
     # Manually list the files.
     data_dicts = load_rubric_results(
-        file_path="processed_rubrics/all_data_dicts.json",
+        file_path="../data/processed_rubrics/all_data_dicts.json",
         indices_intersection=True,
         check_short_indices=False,
         check_references_match=False,
     )
 
+    data_dicts = {
+        "TAE": data_dicts["linear"],
+        "Cont.": data_dicts["continued"],
+        "blind": data_dicts["baseline"],
+        "cheat-1": data_dicts["cheat-1"],
+        "cheat-5": data_dicts["cheat-5"],
+        "cheat-10": data_dicts["cheat-10"],
+        "regenerated": data_dicts["regenerated"],
+        "auto-decoded": data_dicts["auto-decoded"],
+    }
+
+    
+    ones = np.ones(3)
+    base = ones * 0.5
+    r = np.array([0.0, 0.1, 0.3])
+    g = np.array([0.1, 0.3, 0.0])
+    b = np.array([0.3, 0.0, 0.1])
+
+    colour_map = {
+        "TAE": base + r ,
+        "Cont.": base + r,
+        "blind": base + b,
+        "cheat-1": base + b,
+        "cheat-5": base + b,
+        "cheat-10": base + b,
+        "regenerated": base + g,
+        "auto-decoded": base + g,
+    }
+    # Rename baseline
 
     # metrics = ["complexity", "coherence", "structure", "subject", "entities", "details", "terminology", "tone"]
     metrics = ["coherence", "subject", "entities", "details"]
 
     for metric in metrics:
-        plot_score_proportions_interactive(data_dicts, metric)
+        plot_score_proportions_interactive(data_dicts, metric, colour_map)
 
+# %%
+# Generate LaTeX table comparing outlines
+import random
+# Get 5 random indices
+random.seed(42)  # For reproducibility
+sample_indices = random.sample(range(len(data_dicts["TAE"])), min(5, len(data_dicts["TAE"])))
+sample_indices = [list(data_dicts["TAE"].keys())[i] for i in sample_indices]
+
+for i, idx in enumerate(sample_indices):
+    print(f"\\begin{{table}}[h!]")
+    print("\\centering")
+    print("\\begin{tabular}{p{4.5cm}p{4.5cm}p{4.5cm}}")
+    print("\\toprule")
+    print("\\textbf{TAE} & \\textbf{Cont.} & \\textbf{Original} \\\\")
+    print("\\midrule")
+    
+    # Get the TAE text
+    tae_text = data_dicts["TAE"][str(idx)]['comparison']
+    # Clean and escape LaTeX special characters
+    tae_text = tae_text.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('\n', '\\newline')
+    
+    # Get the Cont. text
+    cont_text = data_dicts["Cont."][str(idx)]['comparison']
+    # Clean and escape LaTeX special characters
+    cont_text = cont_text.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('\n', '\\newline')
+    
+    # Get the Original text
+    original_text = data_dicts["TAE"][str(idx)]['reference']
+    # Clean and escape LaTeX special characters
+    original_text = original_text.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('\n', '\\newline')
+    print(f"{tae_text} & {cont_text} & {original_text} \\\\")
+    print("\\bottomrule")
+    print("\\end{tabular}")
+    print(f"\\caption{{Comparison of TAE vs Cont. vs Original - Example {i+1}}}")
+    print(f"\\label{{tab:text_comparison_{i+1}}}")
+    print("\\end{table}")
+    print()
 # %%

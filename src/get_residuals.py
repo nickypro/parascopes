@@ -10,14 +10,15 @@ torch.set_grad_enabled(False)
 model = "gemma-27b"
 
 if model == "llama-3b":
-    DATASET_FILE = '/workspace/SPAR/gen-dataset/split_indexed_dataset.jsonl'
-    with open(DATASET_FILE, 'r') as file:
-        dataset = [json.loads(line) for line in file]
+    # DATASET_FILE = '/workspace/SPAR/gen-dataset/split_indexed_dataset.jsonl'
+    # with open(DATASET_FILE, 'r') as file:
+    #     dataset = [json.loads(line) for line in file]
+    dataset = load_dataset("annnettte/fineweb-llama3b-texts-split")["train"]
     m = Model("meta-llama/Llama-3.2-3B-Instruct", dtype="hqq8", limit=64000)
 
 elif model == "gemma-27b":
     from datasets import load_dataset
-    dataset = load_dataset("nickypro/fineweb-gemma27b-regen")["train"]
+    dataset = load_dataset("annnettte/fineweb-gemma27b-texts-split")["train"]
     m = Model("google/gemma-3-27b-it", dtype="hqq4", device_map="cuda", limit=8000)
 
 else:
@@ -47,7 +48,6 @@ for i, data in enumerate(tqdm(dataset)):
         batch = []
 
     text = "".join(data["split"])
-    inputs, attns, mlps, output = m.get_residual_diffs(text)
 
     # Interweave the tensors as specified
     res = [inputs[:, None]]

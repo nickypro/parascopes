@@ -11,6 +11,10 @@ from tqdm import tqdm
 from utils_plot import load_rubric_results
 from utils_load_data import BASE_DIR
 
+# EMBED_MODEL_REPO = "all-mpnet-base-v2"
+EMBED_MODEL_REPO = "Qwen/Qwen3-Embedding-0.6B"
+
+
 def compute_cosine_similarity(ref_embeddings, comp_embeddings):
     """ Compute the cosine similarity between two arrays of embeddings. """
     dot_products = np.sum(ref_embeddings * comp_embeddings, axis=1)
@@ -37,8 +41,8 @@ def load_texts(file_path):
     except:
         return texts, {}
 
-def get_cosine_similarity_data(ref_file, compare_files, model_name="all-mpnet-base-v2"):
-    """
+def get_cosine_similarity_data(ref_file, compare_files, model_name=EMBED_MODEL_REPO):
+    f"""
     Compute the cosine similarity between each corresponding text in the reference texts and the texts from
     the comparison files, then plot a violin plot of these similarities.
 
@@ -46,7 +50,7 @@ def get_cosine_similarity_data(ref_file, compare_files, model_name="all-mpnet-ba
         ref_file (str): Path to the reference texts JSON file.
         compare_files (dict): Dictionary mapping a label to a JSON file path.
         output_image (str): File path to save the resulting violin plot image.
-        model_name (str): The SentenceTransformer model to use (default: "all-mpnet-base-v2").
+        model_name (str): The SentenceTransformer model to use (default: {EMBED_MODEL_REPO}).
     """
     print(f"Loading reference texts from: {ref_file}")
     ref_texts, _ = load_texts(ref_file)
@@ -93,17 +97,20 @@ def get_cosine_similarity_data(ref_file, compare_files, model_name="all-mpnet-ba
 
     return df_plot
 
-def plot_cosine_similarity_violin(df_plot, output_image):
+def plot_cosine_similarity_violin(df_plot, output_image, colour_map=None):
     plt.figure(figsize=(10, 6))
     # Create custom color palette based on comparison types
     palette = {}
     for i, label in enumerate(df_plot["Comparison Type"].unique()):
         # Use RGB colors instead of HSLA since seaborn doesn't support HSLA
-        hue = i * 150 % 360
-        # Convert HSL to RGB (approximation)
-        r = 0.6 + 0.3 * np.cos(np.radians(hue))
-        g = 0.6 + 0.3 * np.cos(np.radians(hue - 120))
-        b = 0.6 + 0.3 * np.cos(np.radians(hue + 120))
+        if colour_map is None:
+            hue = i * 150 % 360
+            # Convert HSL to RGB (approximation)
+            r = 0.6 + 0.3 * np.cos(np.radians(hue))
+            g = 0.6 + 0.3 * np.cos(np.radians(hue - 120))
+            b = 0.6 + 0.3 * np.cos(np.radians(hue + 120))
+        else:
+            r, g, b = colour_map[label]
         palette[label] = (r, g, b)
 
     sns.violinplot(data=df_plot, x="Comparison Type", y="Cosine Similarity", hue="Comparison Type", palette=palette, scale="width", legend=False)
@@ -120,16 +127,16 @@ def plot_cosine_similarity_violin(df_plot, output_image):
 
 if __name__ == "__main__":
 
-    cossim_plot_path = f"{BASE_DIR}/figues/cossim-plot.png"
+    cossim_plot_path = f"{BASE_DIR}/figures/cossim-plot.png"
     folder = f"{BASE_DIR}/comparison_texts"
 
     # Manually list the files.
     ref_file = f"{folder}/original_texts.json"
     compare_files = {
-        "mlp": f"{folder}/mlp_decoded_texts.json",
-        "linear": f"{folder}/linear_decoded_texts.json",
-        "linear-ce": f"{folder}/linear_ce_decoded_texts.json",
-        "continued": f"{folder}/parascope_continuation_texts.json",
+        # "mlp": f"{folder}/mlp_decoded_texts.json",
+        "TAE": f"{folder}/linear_decoded_texts.json",
+        # "linear-ce": f"{folder}/linear_ce_decoded_texts.json",
+        "Cont.": f"{folder}/parascope_continuation_texts.json",
         "baseline": f"{folder}/baseline_0_outputs.json",
         "cheat-1": f"{folder}/baseline_1_outputs.json",
         "cheat-5": f"{folder}/baseline_5_outputs.json",
@@ -137,9 +144,60 @@ if __name__ == "__main__":
         "regenerated": f"{folder}/regenerated_outputs.json",
         "auto-decoded": f"{folder}/original_decoded_texts.json",
     }
+    # compare_files = {
+    #     "cheat-0": f"{folder}/baseline_0_outputs.json",
+    #     "cheat-1": f"{folder}/baseline_1_outputs.json",
+    #     "cheat-2": f"{folder}/baseline_2_outputs.json",
+    #     "cheat-3": f"{folder}/baseline_3_outputs.json",
+    #     "cheat-5": f"{folder}/baseline_5_outputs.json",
+    #     "cheat-10": f"{folder}/baseline_10_outputs.json",
+    #     "cheat-15": f"{folder}/baseline_15_outputs.json",
+    #     "cheat-20": f"{folder}/baseline_20_outputs.json",
+    #     # "cheat-30": f"{folder}/baseline_30_outputs.json",
+    #     # "cheat-50": f"{folder}/baseline_50_outputs.json",
+    #     "cheat-100": f"{folder}/baseline_100_outputs.json",
+    #     # "cheat-125": f"{folder}/baseline_125_outputs.json",
+    #     "regenerated": f"{folder}/regenerated_outputs.json",
+    #     "auto-decoded": f"{folder}/original_decoded_texts.json",
+    # }
 
-    df_plot = get_cosine_similarity_data(ref_file, compare_files)
-    plot_cosine_similarity_violin(df_plot, cossim_plot_path)
+    ones = np.ones(3)
+    base = ones * 0.5
+    r = np.array([0.0, 0.2, 0.4])
+    g = np.array([0.2, 0.4, 0.0])
+    b = np.array([0.4, 0.0, 0.2])
+
+    colour_map = {
+        "TAE": base + r ,
+        "Cont.": base + r,
+        "blind": base + b,
+        "cheat-1": base + b,
+        "cheat-5": base + b,
+        "cheat-10": base + b,
+        "regenerated": base + g,
+        "auto-decoded": base + g,
+    }
+    # Rename baseline to blind in the dataframe
+
+    # df_plot = get_cosine_similarity_data(ref_file, compare_files)
+    # df_plot = pd.read_csv("../data/cached_results/cossim_plot.csv")
+    df_plot = pd.read_csv("../data/cached_results/cossim_plot.csv")
+    df_plot['Comparison Type'] = df_plot['Comparison Type'].replace('baseline', 'blind')
+    plot_cosine_similarity_violin(df_plot, cossim_plot_path, colour_map)
+
+# %%
+df_plot.head()
+# Cosine Similarity	Comparison Type
+# 0	0.013121	cheat-0
+# 1	0.286257	cheat-0
+# 2	-0.014226	cheat-0
+# 3	0.231789	cheat-0
+# 4	-0.037706	cheat-0
+
+# %%
+# Remove cheat-30 entries from the dataframe
+# df_plot = df_plot[df_plot['Comparison Type'] != 'cheat-30']
+# plot_cosine_similarity_violin(df_plot, cossim_plot_path)
 
 # %%
 
@@ -163,6 +221,22 @@ compare_files = {
     "regenerated": f"{folder}/regenerated_outputs.json",
     "auto-decoded": f"{folder}/original_decoded_texts.json",
 }
+# compare_files = {
+#     "cheat-0": f"{folder}/baseline_0_outputs.json",
+#     "cheat-1": f"{folder}/baseline_1_outputs.json",
+#     "cheat-2": f"{folder}/baseline_2_outputs.json",
+#     "cheat-3": f"{folder}/baseline_3_outputs.json",
+#     "cheat-5": f"{folder}/baseline_5_outputs.json",
+#     "cheat-10": f"{folder}/baseline_10_outputs.json",
+#     "cheat-15": f"{folder}/baseline_15_outputs.json",
+#     "cheat-20": f"{folder}/baseline_20_outputs.json",
+#     "cheat-30": f"{folder}/baseline_30_outputs.json",
+#     "cheat-50": f"{folder}/baseline_50_outputs.json",
+#     "cheat-100": f"{folder}/baseline_100_outputs.json",
+#     "cheat-125": f"{folder}/baseline_125_outputs.json",
+#     "regenerated": f"{folder}/regenerated_outputs.json",
+#     "auto-decoded": f"{folder}/original_decoded_texts.json",
+# }
 
 # Load original texts.
 with open(ref_file, "r") as f:
