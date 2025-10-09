@@ -11,7 +11,7 @@ MODELS = [
 ]
 
 # HuggingFace original source data config
-HF_DATASET = "annnettte/fineweb-llama3b-texts"
+HF_DATASET = "annnettte/fineweb-llama4b-texts"
 HF_SPLIT = "train"
 HF_REPO_ID = os.getenv("HF_REPO_ID", "yulia-volkova/parascopes-outlines-data")  
 HF_PRIVATE = True  
@@ -23,7 +23,6 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 VERSION = "5.0"  
 GENERATIONS_CSV = os.path.join(RESULTS_DIR, f"outlines_{VERSION}_n{N_SAMPLES}.csv")
-
 
 OUTLINE_PROMPT_RULES = """
 Return a short, high-level bullet-point outline of the main ideas from the text you are given.
