@@ -1,6 +1,9 @@
 # Results and experiment outputs
 outlines/results/
 outlines/plots/
+outlines/logs/
+outlines/artifacts
+.env/
 
 # Old CSV files that should be moved to results
 outlines/*.csv
