@@ -11,7 +11,7 @@ MODELS = [
 ]
 
 # HuggingFace original source data config
-HF_DATASET = "annnettte/fineweb-llama3b-texts"
+HF_DATASET = "annnettte/fineweb-gemma4b-texts"
 HF_SPLIT = "train"
 HF_REPO_ID = os.getenv("HF_REPO_ID", "yulia-volkova/parascopes-outlines-data")  
 HF_PRIVATE = True  
