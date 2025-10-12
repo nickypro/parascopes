@@ -24,7 +24,6 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 VERSION = "5.0"  
 GENERATIONS_CSV = os.path.join(RESULTS_DIR, f"outlines_{VERSION}_n{N_SAMPLES}.csv")
 
-
 OUTLINE_PROMPT_RULES = """
 Return a short, high-level bullet-point outline of the main ideas from the text you are given.
 Do NOT include any reasoning.

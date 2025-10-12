@@ -12,7 +12,7 @@ Key features
     * If set → use contiguous, ascending slices; cycle across epochs in order (no shuffle).
 - Tiny LRU cache: keep at most `--max-cached-chunks` chunks in RAM.
 - Intermittent tests: fast "audit" eval during training on a fixed, tiny val set.
-- Pluggable Tracker protocol; works with your WandbTracker via wandb_tracker.py.
+- Pluggable Tracker protocol; works with WandbTracker via wandb_tracker.py.
 - Checkpoint resume: `--resume-from` restores model/optim/scheduler and continues with the next epoch.
 - HF cache auto-clean after each epoch (and optionally right after normalization).
 """
@@ -56,7 +56,7 @@ HF_REPO_ID_EMBEDS    = "yulia-volkova/llama-3b-outlines-embeddings_new"
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 SAMPLES_PER_CHUNK = 1000  # invariant
 
-# ================= Tracker protocol (pluggable logger) ======================
+# ================= Tracker protocol ======================
 class Tracker(Protocol):
     def on_start(self, run_config: Dict): ...
     def define_metrics(self): ...
@@ -978,7 +978,7 @@ if __name__ == "__main__":
                         help="Also clean HF cache immediately after the normalization pass.")
     parser.add_argument("--limit-layers", type=int, default=None,
                         help="If set, slice residuals to the first N layers before feeding the model.")
-    # NEW: local fallbacks
+    # local fallbacks
     parser.add_argument("--local-residuals-dir", type=str, default=None,
                         help="Local directory containing res_data_XXX.pt residual chunks.")
     parser.add_argument("--local-embeds-dir", type=str, default=None,

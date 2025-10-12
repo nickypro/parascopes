@@ -14,7 +14,6 @@ except Exception as e:
         "wandb is required for WandbTracker. Install with `pip install wandb`."
     ) from e
 
-# --- robustly import the sibling train_probe.py regardless of CWD ---
 _here = Path(__file__).parent
 _train_probe_path = _here / "train_probe.py"
 if not _train_probe_path.exists():
@@ -64,7 +63,6 @@ class WandbTracker:
             pass
 
     def define_metrics(self):
-        """Declare metrics so W&B knows which field is the step axis."""
         # Global step is the x-axis for per-step logs
         wandb.define_metric("global_step", summary="max")
 
@@ -93,7 +91,6 @@ class WandbTracker:
         type_: str = "asset",
         description: str = "",
     ):
-        """Upload a file as a W&B artifact."""
         art = wandb.Artifact(
             name=name or os.path.basename(path),
             type=type_,
@@ -155,7 +152,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--hf-cache-clean-after-norm", action="store_true",
                    help="Also clean HF cache immediately after the normalization pass.")
 
-    # NEW: Local fallbacks
+    # Local fallbacks
     p.add_argument("--local-residuals-dir", type=str, default=None,
                    help="Local directory containing res_data_XXX.pt residual chunks.")
     p.add_argument("--local-embeds-dir", type=str, default=None,
@@ -180,7 +177,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _force_cpu_if_requested(wants_cpu: bool):
-    """Best-effort way to ensure CPU only."""
+    """ way to ensure CPU only."""
     if not wants_cpu:
         return
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -234,7 +231,7 @@ def _call_train_probe_filtered(args: argparse.Namespace, tracker: WandbTracker):
         # model/input shaping
         limit_layers=args.limit_layers,
 
-        # NEW: local fallbacks
+        # local fallbacks
         local_residuals_dir=args.local_residuals_dir,
         local_embeds_dir=args.local_embeds_dir,
         prefer_local=args.prefer_local,
@@ -245,7 +242,7 @@ def _call_train_probe_filtered(args: argparse.Namespace, tracker: WandbTracker):
         train_size=args.train_size,
     )
 
-    # Filter to only those the core actually accepts
+    # Filter to only those the core (train_probe) actually accepts
     filtered_kwargs = {k: v for k, v in kwargs.items() if k in accepted}
     dropped = [k for k in kwargs.keys() if k not in accepted]
     if dropped:
