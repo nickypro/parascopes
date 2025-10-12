@@ -4,7 +4,7 @@ outlines/results/
 outlines/plots/
 outlines/logs/
 outlines/artifacts
-.env/
+.env
 
 # Old CSV files that should be moved to results
 outlines/*.csv
