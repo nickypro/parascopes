@@ -194,8 +194,7 @@ class Trainer:
             self.scheduler.step()
 
         return self.model
-
-    def save_checkpoint(self, filename):
+    def save_checkpoint(self, filename, upload_to_hf=True):
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, 'wb') as f:
             pickle.dump({
@@ -204,6 +203,29 @@ class Trainer:
                 'welford_emb': self.normalizer_emb.welford,
                 'welford_res': self.normalizer_res.welford,
             }, f)
+        
+        # Upload to HuggingFace if requested
+        if upload_to_hf and wandb.run is not None:
+            try:
+                from huggingface_hub import HfApi
+                api = HfApi()
+                
+                # Create a meaningful repo name from wandb run
+                repo_id = f"sonar-checkpoints/{wandb.run.id}"
+                
+                # Upload the checkpoint file
+                api.upload_file(
+                    path_or_fileobj=filename,
+                    path_in_repo=os.path.basename(filename),
+                    repo_id=repo_id,
+                    repo_type="model",
+                    create_pr=False,
+                )
+                
+                print(f"Checkpoint uploaded to HuggingFace: {repo_id}")
+                wandb.log({"hf_repo": repo_id})
+            except Exception as e:
+                print(f"Failed to upload to HuggingFace: {e}")
 
     @classmethod
     def load_checkpoint(cls, filename, device):

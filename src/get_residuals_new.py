@@ -10,9 +10,9 @@ torch.set_grad_enabled(False)
 MAX_TOKENS = 2048
 
 # %%
-model = "llama-3b"
+model = "llama-3b-new"
 
-if model == "llama-3b":
+if model == "llama-3b-new":
     dataset = load_dataset("annnettte/fineweb-llama3b-texts-split")["train"]
     m = HookedTransformer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct", dtype=torch.bfloat16)
 
@@ -129,6 +129,9 @@ for i, data in enumerate(tqdm(dataset)):
         batch_index = i // 1000 - 1
         torch.save(batch, f"./tensors/{model}/res_data_{batch_index:03d}.pt")
         batch = []
+
+    if i > 3000:
+        break
 
     act_data = get_act_data(data["split_text"], verbose=False)
 

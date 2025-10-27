@@ -18,10 +18,10 @@ def train_linear():
         config = {
             'model_type': 'scaled_linear',
             'batch_size': 1024,
-            'num_epochs': 10,
-            'num_files': 99,
+            'num_epochs': 1,
+            'num_files': 999,
             'group_size': 2,
-            'groups_to_load': 12,
+            'groups_to_load': 14,
             'lr': 1e-3,
             'lr_decay': 0.8,
             'weight_decay': 2e-5,
@@ -29,6 +29,7 @@ def train_linear():
             # 'd_mlp': 8192,
             'd_sonar': 1024,
             # 'd_res': 61440,
+            "do_diff_data": True,
             "group_operation": "cat",
         }
         wandb.config.update(config)
