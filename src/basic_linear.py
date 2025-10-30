@@ -16,13 +16,13 @@ def train_linear():
         wandb.init(project="notebooks-sonar")
 
         config = {
-            'model_type': 'scaled_linear',
+            'model_type': 'linear',
             'batch_size': 1024,
             'num_epochs': 1,
             'num_files': 999,
             'group_size': 2,
             'groups_to_load': 14,
-            'lr': 1e-3,
+            'lr': 2e-5,
             'lr_decay': 0.8,
             'weight_decay': 2e-5,
             # 'dropout': 0.05,

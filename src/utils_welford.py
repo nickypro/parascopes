@@ -49,9 +49,9 @@ def load_or_compute_welford_stats(groups_to_load, group_size, group_operation, d
         welford_res = Welford()
 
         for i in tqdm(range(10), desc="Loading welford stats"):
-            res_data, paragraphs = load_res_data(i, groups_to_load=groups_to_load, group_size=group_size, group_operation=group_operation)
+            res_data, paragraphs, shapes = load_res_data(i, groups_to_load=groups_to_load, group_size=group_size, group_operation=group_operation, do_diff_data=do_diff_data)
             res_data = res_data.cuda()
-            embeds = load_embeds(i).cuda()
+            embeds = load_embeds(i, shapes).cuda()
 
             batch_size = 1000
             num_samples = res_data.size(0)

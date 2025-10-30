@@ -7,8 +7,8 @@ from utils_train import Trainer         # Assumption: Trainer class handles mode
 NUM_COPIES = 1
 #PREFIX = "sonar-sweeps"
 PREFIX  = "notebooks-sonar"
-POSTFIX = "_99"
-INDEX = 99
+POSTFIX = "_999"
+INDEX = 999
 
 
 def main():
@@ -25,7 +25,8 @@ def main():
     model_type = trainer.c.model_type
 
     # Load the full res_data 
-    res_data = load_res_data(INDEX, groups_to_load=trainer.c.groups_to_load).to(DEVICE)
+    res_data, paragraphs, shapes = load_res_data(INDEX, groups_to_load=trainer.c.groups_to_load)
+    res_data = res_data.to(DEVICE)
 
     # Normalize the res_data (assuming trainer.normalizer_res supports batched data)
     normalized_data = trainer.normalizer_res(res_data)
