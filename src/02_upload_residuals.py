@@ -27,6 +27,7 @@ files = [f for f in os.listdir(tensor_dir) if f.endswith('.pt')]
 print(f"Found {len(files)} tensor files to upload")
 
 for i, file in tqdm(enumerate(files)):
+    # file = "res_data_002.pt"
     try:
         api.upload_file(
             path_or_fileobj=os.path.join(tensor_dir, file),
@@ -36,3 +37,4 @@ for i, file in tqdm(enumerate(files)):
         )
     except Exception as e:
         print(f"✗ Failed {file}: {e}")
+    break
