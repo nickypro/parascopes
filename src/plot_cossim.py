@@ -11,8 +11,39 @@ from tqdm import tqdm
 from utils_plot import load_rubric_results
 from utils_load_data import BASE_DIR
 
+import torch
+torch.set_grad_enabled(False)
+
+# CONSTANTS
 # EMBED_MODEL_REPO = "all-mpnet-base-v2"
 EMBED_MODEL_REPO = "Qwen/Qwen3-Embedding-0.6B"
+
+folder = f"{BASE_DIR}/comparison_texts/llama-3b"
+ref_file = f"{folder}/original_texts.json"
+compare_files = {
+    "TAE": f"{folder}/linear_decoded_texts.json",
+    "auto-decoded": f"{folder}/original_decoded_output.json",
+}
+ones = np.ones(3)
+base = ones * 0.5
+r = np.array([0.0, 0.2, 0.4])
+g = np.array([0.2, 0.4, 0.0])
+b = np.array([0.4, 0.0, 0.2])
+
+colour_map = {
+    "TAE": base + r ,
+    "Cont.": base + r,
+    "blind": base + b,
+    "cheat-1": base + b,
+    "cheat-5": base + b,
+    "cheat-10": base + b,
+    "regenerated": base + g,
+    "auto-decoded": base + g,
+}
+# Rename baseline to blind in the dataframe
+
+# %%
+
 
 
 def compute_cosine_similarity(ref_embeddings, comp_embeddings):
@@ -56,7 +87,7 @@ def get_cosine_similarity_data(ref_file, compare_files, model_name=EMBED_MODEL_R
     ref_texts, _ = load_texts(ref_file)
 
     print("Initializing SentenceTransformer...")
-    model = SentenceTransformer(model_name)
+    model = SentenceTransformer(model_name, model_kwargs={"dtype": "bfloat16"})
 
     print("Computing embeddings for reference texts...")
     ref_embeddings = model.encode(ref_texts, convert_to_numpy=True)
@@ -131,19 +162,20 @@ if __name__ == "__main__":
     folder = f"{BASE_DIR}/comparison_texts"
 
     # Manually list the files.
-    ref_file = f"{folder}/original_texts.json"
-    compare_files = {
-        # "mlp": f"{folder}/mlp_decoded_texts.json",
-        "TAE": f"{folder}/linear_decoded_texts.json",
-        # "linear-ce": f"{folder}/linear_ce_decoded_texts.json",
-        "Cont.": f"{folder}/parascope_continuation_texts.json",
-        "baseline": f"{folder}/baseline_0_outputs.json",
-        "cheat-1": f"{folder}/baseline_1_outputs.json",
-        "cheat-5": f"{folder}/baseline_5_outputs.json",
-        "cheat-10": f"{folder}/baseline_10_outputs.json",
-        "regenerated": f"{folder}/regenerated_outputs.json",
-        "auto-decoded": f"{folder}/original_decoded_texts.json",
-    }
+    ref_file = ref_file
+    compare_files = compare_files
+    # {
+    #     # "mlp": f"{folder}/mlp_decoded_texts.json",
+    #     "TAE": f"{folder}/linear_decoded_texts.json",
+    #     # "linear-ce": f"{folder}/linear_ce_decoded_texts.json",
+    #     "Cont.": f"{folder}/parascope_continuation_texts.json",
+    #     "baseline": f"{folder}/baseline_0_outputs.json",
+    #     "cheat-1": f"{folder}/baseline_1_outputs.json",
+    #     "cheat-5": f"{folder}/baseline_5_outputs.json",
+    #     "cheat-10": f"{folder}/baseline_10_outputs.json",
+    #     "regenerated": f"{folder}/regenerated_outputs.json",
+    #     "auto-decoded": f"{folder}/original_decoded_texts.json",
+    # }
     # compare_files = {
     #     "cheat-0": f"{folder}/baseline_0_outputs.json",
     #     "cheat-1": f"{folder}/baseline_1_outputs.json",
@@ -161,28 +193,11 @@ if __name__ == "__main__":
     #     "auto-decoded": f"{folder}/original_decoded_texts.json",
     # }
 
-    ones = np.ones(3)
-    base = ones * 0.5
-    r = np.array([0.0, 0.2, 0.4])
-    g = np.array([0.2, 0.4, 0.0])
-    b = np.array([0.4, 0.0, 0.2])
-
-    colour_map = {
-        "TAE": base + r ,
-        "Cont.": base + r,
-        "blind": base + b,
-        "cheat-1": base + b,
-        "cheat-5": base + b,
-        "cheat-10": base + b,
-        "regenerated": base + g,
-        "auto-decoded": base + g,
-    }
-    # Rename baseline to blind in the dataframe
-
-    # df_plot = get_cosine_similarity_data(ref_file, compare_files)
+    df_plot = get_cosine_similarity_data(ref_file, compare_files)
+    df_plot.to_csv(f"{BASE_DIR}/cached_results/llama-3b/cossim_plot.csv", index=False)
+    # df_plot = pd.read_csv(f"{BASE_DIR}/cached_results/llama-3b/cossim_plot.csv")
     # df_plot = pd.read_csv("../data/cached_results/cossim_plot.csv")
-    df_plot = pd.read_csv("../data/cached_results/cossim_plot.csv")
-    df_plot['Comparison Type'] = df_plot['Comparison Type'].replace('baseline', 'blind')
+    # df_plot['Comparison Type'] = df_plot['Comparison Type'].replace('baseline', 'blind')
     plot_cosine_similarity_violin(df_plot, cossim_plot_path, colour_map)
 
 # %%
@@ -206,21 +221,24 @@ import json
 
 print("\n=== [Original Text] vs [Other Text] by Cosine Sim Buckets (0.1 increments) ===\n")
 
-folder = f"{BASE_DIR}/comparison_texts"
+folder = f"{BASE_DIR}/comparison_texts/llama-3b"
 
-ref_file = f"{folder}/original_texts.json"
+ref_file = f"{folder}/original_decoded_output.json"
 compare_files = {
-    "mlp": f"{folder}/mlp_decoded_texts.json",
     "linear": f"{folder}/linear_decoded_texts.json",
-    "linear-ce": f"{folder}/linear_ce_decoded_texts.json",
-    "continued": f"{folder}/parascope_continuation_texts.json",
-    "baseline": f"{folder}/baseline_0_outputs.json",
-    "cheat-1": f"{folder}/baseline_1_outputs.json",
-    "cheat-5": f"{folder}/baseline_5_outputs.json",
-    "cheat-10": f"{folder}/baseline_10_outputs.json",
-    "regenerated": f"{folder}/regenerated_outputs.json",
-    "auto-decoded": f"{folder}/original_decoded_texts.json",
+    
 }
+#     "mlp": f"{folder}/mlp_decoded_texts.json",
+#     "linear": f"{folder}/linear_decoded_texts.json",
+#     "linear-ce": f"{folder}/linear_ce_decoded_texts.json",
+#     "continued": f"{folder}/parascope_continuation_texts.json",
+#     "baseline": f"{folder}/baseline_0_outputs.json",
+#     "cheat-1": f"{folder}/baseline_1_outputs.json",
+#     "cheat-5": f"{folder}/baseline_5_outputs.json",
+#     "cheat-10": f"{folder}/baseline_10_outputs.json",
+#     "regenerated": f"{folder}/regenerated_outputs.json",
+#     "auto-decoded": f"{folder}/original_decoded_texts.json",
+# }
 # compare_files = {
 #     "cheat-0": f"{folder}/baseline_0_outputs.json",
 #     "cheat-1": f"{folder}/baseline_1_outputs.json",

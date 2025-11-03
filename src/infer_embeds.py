@@ -25,7 +25,13 @@ def main():
     model_type = trainer.c.model_type
 
     # Load the full res_data 
-    res_data, paragraphs, shapes = load_res_data(INDEX, groups_to_load=trainer.c.groups_to_load)
+    res_data, paragraphs, shapes = load_res_data(
+        INDEX,
+        groups_to_load=trainer.c.groups_to_load,
+        model_path="llama-3b",
+        group_operation=trainer.c.group_operation,
+        do_diff_data=trainer.c.do_diff_data,
+    )
     res_data = res_data.to(DEVICE)
 
     # Normalize the res_data (assuming trainer.normalizer_res supports batched data)

@@ -30,7 +30,7 @@ def train_linear():
             'd_sonar': 1024,
             # 'd_res': 61440,
             "do_diff_data": True,
-            "group_operation": "cat",
+            "group_operation": "sum",
         }
         wandb.config.update(config)
 
