@@ -60,9 +60,21 @@ def main():
     #output_path = f"{BASE_DIR}/comparison_texts/mlp_train_decoded_texts.json"
 
     # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_e5kuwe04_999_linear.pt"
-    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts.json"
-    input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_6t5yk65v_999_linear.pt"
-    output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v2_sum.json"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v1.json"
+
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_6t5yk65v_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v2_sum.json"
+
+    input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_86sh3hsg_999_linear.pt"
+    output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v3_nodiff.json"
+
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_r13fvayz_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v4_attn_only.json"
+
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_w7szmys3_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v5_mlp_only.json"
+
+
     if not os.path.isfile(input_path):
         print(f"File not found: {input_path}")
         return

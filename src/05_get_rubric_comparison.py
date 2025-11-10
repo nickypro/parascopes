@@ -122,11 +122,11 @@ json_schema = {
 
 
 @exponential_backoff
-def ruberic_compare(ref_text, comp_text):
+def rubric_compare(ref_text, comp_text):
     import openai
     import os
 
-    # Create a prompt that instructs the evaluator using the above ruberic
+    # Create a prompt that instructs the evaluator using the above rubric
     prompt = (
         f"Using the following rubric, compare the two texts below:\n\n"
         f"Rubric: {rubric}\n\n"
@@ -141,7 +141,7 @@ def ruberic_compare(ref_text, comp_text):
     )
     response = client.chat.completions.create(
         #model="openai/o3-mini",
-        model="openai/gpt-4o-mini",
+        model="openai/gpt-oss-120b",
         #model="gpt-4o-mini",
         # model="meta-llama/llama-3.3-70b-instruct",
         messages=[{
@@ -157,21 +157,21 @@ def ruberic_compare(ref_text, comp_text):
     result = response.choices[0].message.content
     return result
 
-def get_ruberic_comparison(ref_texts: List[str], comp_texts: List[str], label=None):
+def get_rubric_comparison(ref_texts: List[str], comp_texts: List[str], label=None):
     results = []
     for index, (ref_text, comp_text) in enumerate(zip(ref_texts, comp_texts)):
-        result = ruberic_compare(ref_text, comp_text)
+        result = rubric_compare(ref_text, comp_text)
         results.append(result)
         print({"index": index, "type": label, "reference": ref_text, "comparison": comp_text, "result": result})
     return results
 
-def get_ruberic_parallel(ref_texts: List[str], comp_texts: List[str], label=None):
+def get_rubric_parallel(ref_texts: List[str], comp_texts: List[str], label=None):
     items = list(zip(np.arange(len(ref_texts)), ref_texts, comp_texts))
     print(f"Processing {len(items)} comparisons in parallel")
 
     def get_rubric(items):
         index, ref_text, comp_text = items
-        result = ruberic_compare(ref_text, comp_text)
+        result = rubric_compare(ref_text, comp_text)
         print({"index": index, label: label, "reference": ref_text, "comparison": comp_text, "result": result})
         return result
 
@@ -191,7 +191,7 @@ def load_texts(file_path: str) -> Tuple[List[str], Dict]:
     except:
         return texts, {}
 
-def get_ruberic_comparison_data(ref_file, compare_files):
+def get_rubric_comparison_data(ref_file, compare_files):
     """
     Compute the cosine similarity between each corresponding text in the reference texts and the texts from
     the comparison files, then plot a violin plot of these similarities.
@@ -205,7 +205,7 @@ def get_ruberic_comparison_data(ref_file, compare_files):
     print(f"Loading reference texts from: {ref_file}")
     ref_texts, _ = load_texts(ref_file)
 
-    all_ruberic_scores = []
+    all_rubric_scores = []
     all_labels = []
 
     for label, file_path in (pbar := tqdm(compare_files.items(), total=len(compare_files))):
@@ -217,17 +217,17 @@ def get_ruberic_comparison_data(ref_file, compare_files):
 
         # Filter out texts with a cheat fraction greater than 0.5
         indices = np.where(np.array(comp_data["cheat_fracs"]) <= 0.5)[0] if "cheat_fracs" in comp_data else np.arange(len(comp_texts))
-        ruberic_scores = get_ruberic_parallel(ref_texts[indices], comp_texts[indices], label)
+        rubric_scores = get_rubric_parallel(ref_texts[indices], comp_texts[indices], label)
 
-        all_ruberic_scores.extend(ruberic_scores)
-        all_labels.extend([label] * len(ruberic_scores))
+        all_rubric_scores.extend(rubric_scores)
+        all_labels.extend([label] * len(rubric_scores))
 
-        with open(f"ruberic_scores/{label}.json", "w") as f:
-            json.dump(ruberic_scores, f)
+        with open(f"rubric_scores/{label}.json", "w") as f:
+            json.dump(rubric_scores, f)
 
     # Build a DataFrame for plotting.
     df_plot = pd.DataFrame({
-        "Ruberic Scores": all_ruberic_scores,
+        "Rubric Scores": all_rubric_scores,
         "Comparison Type": all_labels
     })
 
@@ -236,10 +236,13 @@ def get_ruberic_comparison_data(ref_file, compare_files):
 if __name__ == "__main__":
 
     cossim_plot_path = "cossim-plot.png"
+    BASE_DIR = "./hdd_cache/"
+    folder = f"{BASE_DIR}/comparison_texts/llama-3b"
 
     # Manually list the files.
     #ref_file = "comparison_texts/original_texts.json"
-    ref_file = "comparison_texts/train_paragraphs_98.json"
+    # ref_file = "comparison_texts/train_paragraphs_98.json"
+    ref_file = f"{folder}/original_texts.json"
     compare_files = {
         #"mlp": "comparison_texts/mlp_decoded_texts.json",
         #"linear": "comparison_texts/linear_decoded_texts.json",
@@ -250,10 +253,14 @@ if __name__ == "__main__":
         #"cheat-10": "comparison_texts/baseline_10_outputs.json",
         #"regenerated": "comparison_texts/regenerated_outputs.json",
         #"auto-decoded": "comparison_texts/original_decoded_texts.json",
-        "mlp-train": "comparison_texts/mlp_train_decoded_texts.json",
-        "linear-train": "comparison_texts/linear_train_decoded_texts.json",
+        "TAE-cat": f"{folder}/linear_decoded_texts_v1.json",
+        "TAE-sum": f"{folder}/linear_decoded_texts_v2_sum.json",
+        "TAE-no-diff": f"{folder}/linear_decoded_texts_v3_nodiff.json",
+        "TAE-attn": f"{folder}/linear_decoded_texts_v4_attn_only.json",
+        "TAE-mlp": f"{folder}/linear_decoded_texts_v5_mlp_only.json",
+        "auto-decoded": f"{folder}/original_decoded_output.json",
     }
 
-    df_plot = get_ruberic_comparison_data(ref_file, compare_files)
-    # plot_ruberic_comparison(df_plot, cossim_plot_path)
+    df_plot = get_rubric_comparison_data(ref_file, compare_files)
+    # plot_rubric_comparison(df_plot, cossim_plot_path)
 

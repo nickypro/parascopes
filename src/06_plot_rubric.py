@@ -9,124 +9,135 @@ import seaborn as sns
 from collections import defaultdict
 import plotly.graph_objects as go
 
-from utils_plot import load_rubric_results, process_scores, load_result
+BASE_DIR = "./hdd_cache"
+FIGURES_DIR = f"{BASE_DIR}/figures"
+
+try:
+    get_ipython()
+    show_interactive = True
+except NameError:
+    show_interactive = False
+
+# all_data datatype
+# {
+#     "0": {
+#         "all_valid": True,
+#         "scores": {
+#             "TAE cat": {
+#                 "complexity": 0,
+#                 "coherence": 0,
+#                 "structure": 0,
+#                 "subject": 0,
+#                 "entities": 0,
+#                 "details": 0,
+#                 "terminology": 0,
+#                 "tone": 0,
+#                 "identical": 0,
+#             },
+#             "TAE sum": {...},
+#             ...
+#         }
+#     },
+#     "1": {...},
+#     ...
+# }
 
 
-def calculate_score_proportions(scores, cumulative=False):
-    total = len(scores)
-    if total == 0:
-        return []
+def load_rubric_results(file_path: str):
+    """Load rubric results from processed JSON file, filtering to only valid entries"""
+    with open(file_path, 'r') as f:
+        all_data = json.load(f)
+    
+    # Filter to only valid entries
+    valid_data = {k: v for k, v in all_data.items() if v.get("all_valid", False)}
+    
+    return valid_data
 
-    # Get unique possible scores and sort them
-    unique_scores = sorted(set(scores))
-    proportions = []
 
-    if cumulative:
-        # Calculate proportion >= each score
-        for threshold in unique_scores:
-            count = sum(1 for score in scores if score >= threshold)
-            proportions.append(count / total)
-    else:
-        # Calculate proportion = each score
-        for score in unique_scores:
-            count = sum(1 for s in scores if s == score)
-            proportions.append(count / total)
-
-    return proportions
-
-def plot_score_proportions(data_dicts, metric, output_image=None):
-    plt.figure(figsize=(12, 6))
-
-    # Process each comparison type
-    for label, data_dict in data_dicts.items():
-        # Load and process data
-        data_list = list(data_dict.values())
-        scores = process_scores(data_list, metric)
-
-        proportions = calculate_score_proportions(scores)
-
-        # Get unique scores for x-axis
-        unique_scores = sorted(set(scores))
-
-        # Plot as lines
-        # Plot stacked bars for each score threshold
-        # Create a base color for this label using a consistent mapping
-        label_index = list(data_dicts.keys()).index(label)
-        base_color = plt.cm.Pastel1(label_index / len(data_dicts))
-
-        bottom = 0
-        for i, prop in reversed(list(enumerate(proportions))):
-            # Darken the base color based on score level
-            darkness = 1 - (i/len(proportions))
-            color = tuple(c * darkness for c in base_color[:3]) + (base_color[3],)
-
-            bar = plt.bar([label], [prop], bottom=bottom,
-                   label=f'{label} (≥{unique_scores[i]})',
-                   color=color)
-            plt.text(bar[0].get_x() + bar[0].get_width()/2, bottom + prop/2,
-                    str(unique_scores[i]),
-                    ha='center', va='center')
-            bottom += prop
-
-    # plt.xlabel(f'{metric} Score Threshold')
-    plt.ylabel('Proportion >= Score')
-    plt.title(f'Cumulative Score Distribution for {metric.capitalize()} ({unique_scores[0]} to {unique_scores[-1]})')
-    plt.grid(True, alpha=0.3)
-    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
-
-    if output_image:
-        plt.savefig(output_image, dpi=300, bbox_inches='tight')
-    plt.show()
-
-def get_examples(data_dict, metric, shuffle=True, limit=10):
+def get_examples(data_dict, model_name, metric, shuffle=True, limit=10):
+    """Get example indices for each score value"""
     examples = defaultdict(list)
-    for index, item in data_dict.items():
-        score = load_result(item["result"])["scoring"][metric]
-        examples[score].append(item)
+    for index, entry in data_dict.items():
+        if model_name in entry["scores"]:
+            score = entry["scores"][model_name][metric]
+            examples[score].append({"index": index, "scores": entry["scores"][model_name]})
+    
     if shuffle:
         for score in examples:
             random.shuffle(examples[score])
+    
     if limit is not None:
         for score in examples:
             examples[score] = examples[score][:limit]
+    
     return examples
 
-def plot_score_proportions_interactive(data_dicts, metric, colour_map=None):
+
+def plot_score_proportions_interactive(data_dict, metric, model_names, colour_map=None):
+    """Create interactive stacked bar chart of score distributions"""
     fig = go.Figure()
     df_proportions = pd.DataFrame()
 
-    for label, data_dict in data_dicts.items():
-        data_list = list(data_dict.values())
-        scores = process_scores(data_list, metric)
-        proportions = calculate_score_proportions(scores)
-        unique_scores = sorted(set(scores))
-        examples = get_examples(data_dict, metric, limit=5) # examples[score]["reference"]
+    for label in model_names:
+        # Get scores for this model across all valid entries
+        scores = []
+        for entry in data_dict.values():
+            if label in entry["scores"]:
+                scores.append(entry["scores"][label][metric])
+        
+        # Clean scores: drop None/NaN and non-numeric, cast floats like 1.0 to ints
+        cleaned_scores = []
+        for s in scores:
+            if isinstance(s, (int, float)):
+                # Filter out NaN
+                if isinstance(s, float) and np.isnan(s):
+                    continue
+                cleaned_scores.append(int(s))
 
+        if not cleaned_scores:
+            continue
+
+        # Calculate proportions for each unique score
+        unique_scores = sorted(set(cleaned_scores))
+        proportions = []
+        for score in unique_scores:
+            count = sum(1 for s in cleaned_scores if s == score)
+            proportions.append(count / len(cleaned_scores))
+
+        # Calculate cumulative proportions (>= each score)
         cumulative_proportions = []
-        for i, prop in enumerate(proportions):
+        for i in range(len(proportions)):
             cumulative_proportions.append(sum(proportions[i:]))
-        df_proportions = pd.concat([df_proportions, pd.DataFrame({"label": label, "score": unique_scores, "proportion": cumulative_proportions})])
+        
+        df_proportions = pd.concat([
+            df_proportions, 
+            pd.DataFrame({
+                "label": label, 
+                "score": unique_scores, 
+                "proportion": cumulative_proportions
+            })
+        ])
 
-        label_index = list(data_dicts.keys()).index(label)
+        # Get examples for hover text
+        examples = get_examples(data_dict, label, metric, limit=5)
 
+        label_index = model_names.index(label)
+
+        # Add stacked bars (reversed order for visual effect)
         bottom = 0
         for i, prop in reversed(list(enumerate(proportions))):
-            #base_color = f'rgba({label_index * 50 % 255}, {label_index * 80 %
-            #255}, {label_index * 110 % 255}, 0.6)'
-            # base_color = f'rgba({label_index * 50 % 255}, {label_index * 80 % 255}, {label_index * 110 % 255}, {(i+1)/len(proportions)})'
             if colour_map is None:
                 base_color = f'hsla({label_index * 150 % 360}, 50%, 50%, {(i+1)/len(proportions)})'
             else:
                 rgb = colour_map[label]
                 base_color = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {(i+1)/len(proportions)})'
 
-            # Safely access examples
+            # Build hover text with examples
             hover_text = f"<br><b>Score:</b> {unique_scores[i]}"
             for example in examples[unique_scores[i]]:
                 hover_text += (
-                    f"<br><b>Reference:</b> {example['reference'][:80]}"
-                    +f"<br><b>Comparison:</b> {example['comparison'][:80]}<br>"
+                    f"<br><b>Index:</b> {example['index']}"
+                    f"<br><b>Complexity:</b> {example['scores'].get('complexity', 'N/A')}<br>"
                 )
 
             fig.add_trace(go.Bar(
@@ -137,33 +148,31 @@ def plot_score_proportions_interactive(data_dicts, metric, colour_map=None):
                 marker_color=base_color,
                 hoverinfo='text',
                 hovertext=hover_text,
-                text=f'{unique_scores[i]}',  # Add number in middle
-                textposition='inside',  # Position text in middle of bar
-                textfont=dict(size=10),  # Set consistent font size
+                text=f'{unique_scores[i]}',
+                textposition='inside',
+                textfont=dict(size=10),
             ))
             bottom += prop
 
     fig.update_layout(
-        title=f'Cumulative Score Distribution for {metric.capitalize()} ({unique_scores[0]} to {unique_scores[-1]})',
-        # xaxis_title=f'{metric} Score Threshold',
+        title=f'Cumulative Score Distribution for {metric.capitalize()}',
         yaxis_title='Proportion >= Score',
         barmode='stack',
-        xaxis=dict(
-            tickangle=-30  # Tilt labels diagonally up to the right
-        ),
-        margin=dict(l=20, r=20, t=40, b=20),  # Reduce margins
-        font=dict(size=10),  # Reduce font size
-        autosize=True  # Automatically adjust figure size
+        xaxis=dict(tickangle=-30),
+        margin=dict(l=20, r=20, t=40, b=20),
+        font=dict(size=10),
+        autosize=True,
+        showlegend=False
     )
 
-    # hide legend
-    fig.update_layout(showlegend=False)
+    # Save figure
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    fig.write_image(f"{FIGURES_DIR}/rubric_score_distribution_{metric}.png")
 
-    # save png to ./figures
-    fig.write_image(f"../figures/score_distribution_{metric}.png")
-
-    fig.show(renderer="notebook_connected")
-    # Create a nicely formatted table showing score distributions
+    if show_interactive:
+        fig.show(renderer="notebook_connected")
+    
+    # Print table
     print(f"\n{metric.capitalize()} Score Cumulative Distribution Table")
     print("-" * 65)
     print("Model      | Score -1 | Score 0  | Score 1  | Score 2  | Score 3  |")
@@ -172,7 +181,6 @@ def plot_score_proportions_interactive(data_dicts, metric, colour_map=None):
     for label in df_proportions['label'].unique():
         model_data = df_proportions[df_proportions['label'] == label]
         proportions = model_data['proportion'].values
-        # Handle cases where we don't have all 5 scores
         row = f"{label:<10} |"
         for i in range(5):
             if i < len(proportions):
@@ -182,40 +190,63 @@ def plot_score_proportions_interactive(data_dicts, metric, colour_map=None):
         print(row)
     print("-" * 65)
 
-def check_references_match(data_dicts):
-    references = {}
-    for data_type, data_dict in data_dicts.items():
-        for index, item in data_dict.items():
-            references[int(index)] = item["reference"]
-        break
+def print_mean_scores(data_dict, metrics, model_names, sorted=True):
+    print("\nMean scores:")
+    
+    # Print header
+    header = f"{'Model':<15}"
+    for metric in metrics:
+        header += f" | {metric.capitalize():<15}"
+    print(header)
+    print("-" * (15 + len(metrics) * 18))
+    
+    model_scores = []
 
-    for data_type, data_dict in data_dicts.items():
-        for index, item in data_dict.items():
-            if item["reference"] != references[int(index)]:
-                print(f"{data_type} {index} {item['reference']} != {references[int(index)]}")
+    # Print each model's scores
+    for model_name in model_names:
+        row = f"{model_name:<15}"
+        total_score = 0
+        for metric in metrics:
+            scores = []
+            for entry in data_dict.values():
+                if model_name in entry["scores"]:
+                    score = entry["scores"][model_name][metric]
+                    # Filter out None values
+                    if score is None or score < 0:
+                        continue
+                    scores.append(score)
+            mean_score = np.mean(scores) if scores else float('nan')
+            total_score += mean_score
+            std_err = np.std(scores) / np.sqrt(len(scores)) if scores else float('nan')
+            row += f" | {mean_score:<6.3f} ± {std_err:<6.3f}"
+        model_scores.append((total_score, row))
+
+    if sorted:
+        model_scores.sort(key=lambda x: x[0], reverse=True)
+    for _, row in model_scores:
+        print(row)
+
 
 if __name__ == "__main__":
 
-    # Manually list the files.
-    data_dicts = load_rubric_results(
-        file_path="../data/processed_rubrics/all_data_dicts.json",
-        indices_intersection=True,
-        check_short_indices=False,
-        check_references_match=False,
+    # Load the processed rubric data (only valid entries)
+    data_dict = load_rubric_results(
+        file_path="./hdd_cache/processed_rubrics/llama-3b/all_data.json"
     )
 
-    data_dicts = {
-        "TAE": data_dicts["linear"],
-        "Cont.": data_dicts["continued"],
-        "blind": data_dicts["baseline"],
-        "cheat-1": data_dicts["cheat-1"],
-        "cheat-5": data_dicts["cheat-5"],
-        "cheat-10": data_dicts["cheat-10"],
-        "regenerated": data_dicts["regenerated"],
-        "auto-decoded": data_dicts["auto-decoded"],
-    }
+    print(f"Loaded {len(data_dict)} valid entries")
 
-    
+    # Define the model names to compare
+    model_names = [
+        "TAE cat",
+        "TAE sum",
+        "TAE no diff",
+        "TAE attn",
+        "TAE mlp",
+        "auto-decoded",
+    ]
+
+    # Define color map
     ones = np.ones(3)
     base = ones * 0.5
     r = np.array([0.0, 0.1, 0.3])
@@ -223,58 +254,58 @@ if __name__ == "__main__":
     b = np.array([0.3, 0.0, 0.1])
 
     colour_map = {
-        "TAE": base + r ,
-        "Cont.": base + r,
-        "blind": base + b,
-        "cheat-1": base + b,
-        "cheat-5": base + b,
-        "cheat-10": base + b,
-        "regenerated": base + g,
+        "TAE cat": base + r,
+        "TAE sum": base + r,
+        "TAE no diff": base + r,
+        "TAE attn": base + b,
+        "TAE mlp": base + b,
         "auto-decoded": base + g,
     }
-    # Rename baseline
 
-    # metrics = ["complexity", "coherence", "structure", "subject", "entities", "details", "terminology", "tone"]
+    # Plot selected metrics
     metrics = ["coherence", "subject", "entities", "details"]
 
     for metric in metrics:
-        plot_score_proportions_interactive(data_dicts, metric, colour_map)
+        plot_score_proportions_interactive(data_dict, metric, model_names, colour_map)
+
+    print_mean_scores(data_dict, metrics, model_names)
+
 
 # %%
-# Generate LaTeX table comparing outlines
-import random
-# Get 5 random indices
-random.seed(42)  # For reproducibility
-sample_indices = random.sample(range(len(data_dicts["TAE"])), min(5, len(data_dicts["TAE"])))
-sample_indices = [list(data_dicts["TAE"].keys())[i] for i in sample_indices]
+# # Generate LaTeX table comparing outlines
+# random.seed(42)  # For reproducibility
 
-for i, idx in enumerate(sample_indices):
-    print(f"\\begin{{table}}[h!]")
-    print("\\centering")
-    print("\\begin{tabular}{p{4.5cm}p{4.5cm}p{4.5cm}}")
-    print("\\toprule")
-    print("\\textbf{TAE} & \\textbf{Cont.} & \\textbf{Original} \\\\")
-    print("\\midrule")
+# # Get 5 random indices from valid entries
+# valid_indices = list(data_dict.keys())
+# sample_indices = random.sample(valid_indices, min(5, len(valid_indices)))
+
+# for i, idx in enumerate(sample_indices):
+#     print(f"\\begin{{table}}[h!]")
+#     print("\\centering")
+#     print("\\begin{tabular}{p{4.5cm}p{4.5cm}}")
+#     print("\\toprule")
+#     print("\\textbf{TAE cat} & \\textbf{auto-decoded} \\\\")
+#     print("\\midrule")
     
-    # Get the TAE text
-    tae_text = data_dicts["TAE"][str(idx)]['comparison']
-    # Clean and escape LaTeX special characters
-    tae_text = tae_text.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('\n', '\\newline')
+#     # Get the TAE cat scores
+#     tae_scores = data_dict[idx]["scores"].get("TAE cat", {})
+#     tae_text = f"Coherence: {tae_scores.get('coherence', 'N/A')}, Subject: {tae_scores.get('subject', 'N/A')}"
     
-    # Get the Cont. text
-    cont_text = data_dicts["Cont."][str(idx)]['comparison']
-    # Clean and escape LaTeX special characters
-    cont_text = cont_text.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('\n', '\\newline')
+#     # Get the auto-decoded scores
+#     auto_scores = data_dict[idx]["scores"].get("auto-decoded", {})
+#     auto_text = f"Coherence: {auto_scores.get('coherence', 'N/A')}, Subject: {auto_scores.get('subject', 'N/A')}"
     
-    # Get the Original text
-    original_text = data_dicts["TAE"][str(idx)]['reference']
-    # Clean and escape LaTeX special characters
-    original_text = original_text.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('\n', '\\newline')
-    print(f"{tae_text} & {cont_text} & {original_text} \\\\")
-    print("\\bottomrule")
-    print("\\end{tabular}")
-    print(f"\\caption{{Comparison of TAE vs Cont. vs Original - Example {i+1}}}")
-    print(f"\\label{{tab:text_comparison_{i+1}}}")
-    print("\\end{table}")
-    print()
+#     # Escape LaTeX special characters
+#     for char, escaped in [('&', '\\&'), ('%', '\\%'), ('$', '\\$'), 
+#                           ('#', '\\#'), ('_', '\\_'), ('{', '\\{'), ('}', '\\}')]:
+#         tae_text = tae_text.replace(char, escaped)
+#         auto_text = auto_text.replace(char, escaped)
+    
+#     print(f"{tae_text} & {auto_text} \\\\")
+#     print("\\bottomrule")
+#     print("\\end{tabular}")
+#     print(f"\\caption{{Comparison of TAE cat vs auto-decoded - Example {i+1} (Index: {idx})}}")
+#     print(f"\\label{{tab:score_comparison_{i+1}}}")
+#     print("\\end{table}")
+#     print()
 # %%

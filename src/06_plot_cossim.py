@@ -21,7 +21,11 @@ EMBED_MODEL_REPO = "Qwen/Qwen3-Embedding-0.6B"
 folder = f"{BASE_DIR}/comparison_texts/llama-3b"
 ref_file = f"{folder}/original_texts.json"
 compare_files = {
-    "TAE": f"{folder}/linear_decoded_texts.json",
+    "TAE cat": f"{folder}/linear_decoded_texts_v1.json",
+    "TAE sum": f"{folder}/linear_decoded_texts_v2_sum.json",
+    "TAE no diff": f"{folder}/linear_decoded_texts_v3_nodiff.json",
+    "TAE attn": f"{folder}/linear_decoded_texts_v4_attn_only.json",
+    "TAE mlp": f"{folder}/linear_decoded_texts_v5_mlp_only.json",
     "auto-decoded": f"{folder}/original_decoded_output.json",
 }
 ones = np.ones(3)
@@ -31,7 +35,11 @@ g = np.array([0.2, 0.4, 0.0])
 b = np.array([0.4, 0.0, 0.2])
 
 colour_map = {
-    "TAE": base + r ,
+    "TAE cat": base + r ,
+    "TAE sum": base + r ,
+    "TAE no diff": base + r,
+    "TAE attn": base + r,
+    "TAE mlp": base + r,
     "Cont.": base + r,
     "blind": base + b,
     "cheat-1": base + b,
