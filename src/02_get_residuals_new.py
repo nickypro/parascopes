@@ -1,5 +1,7 @@
 # %%
+from typing import Any, Mapping, MutableMapping
 from transformer_lens import HookedTransformer
+from neo_taker import Model
 from datasets import load_dataset
 import json
 import torch
@@ -10,16 +12,25 @@ torch.set_grad_enabled(False)
 MAX_TOKENS = 2048
 
 # %%
-model = "llama-3b-new"
+# model = "llama-3b"
+model = "gemma-4b"
 
-if model == "llama-3b-new":
+if model == "llama-3b":
     dataset = load_dataset("annnettte/fineweb-llama3b-texts-split")["train"]
     m = HookedTransformer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct", dtype=torch.bfloat16)
+
+elif model == "gemma-4b":
+    dataset = load_dataset("annnettte/fineweb-gemma4b-texts-split")["train"]
+    m = Model.from_pretrained("google/gemma-3-4b-it", dtype="bf16")
+
+elif model == "gemma-12b":
+    dataset = load_dataset("annnettte/fineweb-gemma12b-texts-split")["train"]
+    m = Model.from_pretrained("google/gemma-3-12b-it", dtype="bf16")
 
 elif model == "gemma-27b":
     from datasets import load_dataset
     dataset = load_dataset("annnettte/fineweb-gemma27b-texts-split")["train"]
-    m = HookedTransformer.from_pretrained("google/gemma-3-27b-it", dtype=torch.bfloat16)
+    m = Model.from_pretrained("google/gemma-3-4b-it", dtype="hqq8")
 
 else:
     raise ValueError(f"Model {model} not supported")
@@ -85,6 +96,8 @@ def get_act_data(split_text, act_types=None, verbose=False):
 
     all_tokens = all_tokens[:, :MAX_TOKENS]
     final_indices_abs = final_indices_abs[final_indices_abs < MAX_TOKENS]
+    # Ensure token ids are integer indices
+    all_tokens = all_tokens.long()
 
     if verbose:
         print(f"{final_indices_abs=}")
@@ -96,7 +109,8 @@ def get_act_data(split_text, act_types=None, verbose=False):
     # Create hooks to store activations of only the correct residual streams
     act_data = {}
     def store_act(act, hook):
-        act_data[hook.name] = act[..., final_indices_abs, :]
+        idx = torch.as_tensor(final_indices_abs, device=act.device, dtype=torch.long)
+        act_data[hook.name] = act[..., idx, :]
     hook_list = [(name, store_act) for name in hook_names]
 
     # Run model and store activations
@@ -116,22 +130,26 @@ import os
 os.makedirs(f"./tensors/{model}", exist_ok=True)
 
 import os
-
-# Determine how many files exist in ./tensors
-existing_files = len([name for name in os.listdir(f"./tensors/{model}") if name.startswith("res_data_") and name.endswith(".pt")])
-skip_count = existing_files * 1000
+# Determine which batch files already exist
+existing_files = [name for name in os.listdir(f"./tensors/{model}") if name.startswith("res_data_") and name.endswith(".pt")]
+existing_batch_indices = set()
+for name in existing_files:
+    # Extract batch index from filename like "res_data_000.pt"
+    batch_num = int(name.replace("res_data_", "").replace(".pt", ""))
+    existing_batch_indices.add(batch_num)
 
 batch = []
 for i, data in enumerate(tqdm(dataset)):
-    if i < skip_count:
+    batch_index = i // 1000
+    
+    # Skip if this batch already exists
+    if batch_index in existing_batch_indices:
         continue
+    
     if i > 0 and i % 1000 == 0:
-        batch_index = i // 1000 - 1
-        torch.save(batch, f"./tensors/{model}/res_data_{batch_index:03d}.pt")
+        torch.save(batch, f"./tensors/{model}/res_data_{batch_index - 1:03d}.pt")
+        existing_batch_indices.add(batch_index - 1)
         batch = []
-
-    if i > 3000:
-        break
 
     act_data = get_act_data(data["split_text"], verbose=False)
 
@@ -140,7 +158,7 @@ for i, data in enumerate(tqdm(dataset)):
     res = []
     res.append(act_data["blocks.0.hook_resid_pre"])
     for i in range(m.cfg.n_layers):
-        res.append(act_data[f"blocks.{i}.hook_resid_mid"])
+        # res.append(act_data[f"blocks.{i}.hook_resid_mid"])
         res.append(act_data[f"blocks.{i}.hook_resid_post"])
 
     # print([x.shape for x in res])
@@ -156,6 +174,6 @@ for i, data in enumerate(tqdm(dataset)):
     # print(res_tensor.shape)
 
 batch_index += 1
-torch.save(batch, f"./tensors/{model}/res_data_{batch_index:03d}.pt")
+# torch.save(batch, f"./tensors/{model}/res_data_{batch_index:03d}.pt")
 
 # %%

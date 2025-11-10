@@ -4,8 +4,8 @@ import os
 
 # Initialize the API
 api = HfApi()
-repo = "nickypro/fineweb-llama3b-residuals"
-tensor_dir = "./tensors/llama-3b"
+repo = "nickypro/fineweb-gemma4b-residuals"
+tensor_dir = "./tensors/gemma-4b"
 
 # Create a repository (do this once)
 try:
