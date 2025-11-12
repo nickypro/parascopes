@@ -8,7 +8,7 @@ cd "$BASE_DIR"
 export PYTHONPATH=$PYTHONPATH:$BASE_DIR
 
 # Loop through chunks 2 to 9
-for chunk in {1..9}; do
+for chunk in {8..9}; do
     echo "Processing chunk $chunk..."
     python yulia/outlines/generate_embeddings.py $chunk
     
