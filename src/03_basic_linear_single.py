@@ -4,9 +4,7 @@ import gc
 import torch
 import wandb
 
-from utils_load_data import load_res_data, load_embeds, load_paragraphs
-from utils_welford   import load_or_compute_welford_stats
-from utils_train     import Trainer
+from utils_train_layer import Trainer
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_grad_enabled(False)
@@ -16,19 +14,20 @@ def train_linear():
         wandb.init(project="notebooks-sonar")
 
         config = {
-            'model_type': 'mlp',
+            'model_type': 'scaled_linear',
             'batch_size': 1024,
             'num_epochs': 10,
             'num_files': 99,
-            'group_size': 4,
-            'groups_to_load': 6,
-            'lr': 2e-5,
+            'group_size': 2,
+            'chosen_layer': 20,
+            'lr': 2e-4,
             'lr_decay': 0.8,
             'weight_decay': 2e-5,
-            'dropout': 0.05,
-            'd_mlp': 8192,
+            # 'dropout': 0.05,
+            # 'd_mlp': 8192,
             'd_sonar': 1024,
-            # 'd_res': 61440
+            # 'd_res': 61440,
+            "group_operation": "cumcat",
         }
         wandb.config.update(config)
 
@@ -37,7 +36,7 @@ def train_linear():
         model = trainer.train()
 
         # Save checkpoint with wandb metadata
-        filename = f"./checkpoints/sweeps/{wandb.run.id}_{wandb.config.model_type}.pkl"
+        filename = f"./checkpoints/sweeps/{wandb.run.id}_{wandb.config.model_type}_{wandb.config.group_operation}.pkl"
         trainer.save_checkpoint(filename)
     except RuntimeError as e:
         if 'CUDA out of memory' in str(e):

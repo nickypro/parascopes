@@ -1,22 +1,89 @@
 # %%
 import json
+import numpy as np
 import torch
 import einops
 
 BASE_DIR = "../data"
+BASE_DIR = "/workspace/hdd_cache/"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_grad_enabled(False)
 folder = BASE_DIR
 
-def load_res_data_internal(index, group_size=2, group_operation="cat"):
-    file_path = f"{folder}/res_tensors/res_data_{index:03d}.pt"
-    data = torch.load(file_path, map_location="cpu", weights_only=False)
-    data = torch.cat(data, dim=2)  # Concatenate list of tensors
+def load_res_data_internal(
+        data_file_index, 
+        group_size=2,
+        group_operation="cat",
+        do_diff_data=True,
+        model_path="llama-3b",
+    ):
+    f"""
+    Load pre-computed residuals from model.
+    By default, the data comes in form of accumulated residuals:
+    [ inputs_embeds, attn_0_out_res, mlp_0_out_res, attn_1_out_res, ... mlp_n_out_res ]
+    If do_diff_data is enabled, we get only the outputs
+    [ inputs_embeds, attn_0_out, mlp_0_out, attn_1_out, ... mlp_n_out ]
+    The inputs embeds are ignored.
+    These are then combined into groups for easier computations:
+    [ (attn_0_out, mlp_0_out), (attn_1_out, mlp_1_out), ... (attn_n_out, mlp_n_out) ]
+
+    We can then apply operations to the groups:
+    - cum: cumulatively sum within each group
+    - cat: concatenate within each group
+    - select_k: select the k-th index of the group (not implemented)
+      - attn_only == select_0
+      - mlp_only == select_1
+
+    data is loaded as:
+    list[dict(
+        "split_text": list[str],
+        "res": tensor[... layers samples dim],
+        "index": int,
+    )]
+    """
+    # load the combined data
+    # file_path = f"{folder}/res_tensors/res_data_{index:03d}.pt"
+    file_path = f"{folder}/tensors/{model_path}/res_data_{data_file_index:03d}.pt"
+    all_data = torch.load(file_path, map_location="cpu", weights_only=False)
+    text_data = [all_data[i]["split_text"] for i in range(len(all_data))]
+    data = [all_data[i]["res"] for i in range(len(all_data))]
+    paragraphs = []
+    for index, (current_texts, res) in enumerate(zip(text_data, data)):
+        if len(current_texts) == res.shape[-2]:
+            paragraphs.append(current_texts[1:])
+            data[index] = data[index][:, :-1, :] # exclude <endoftext> token resiuduals
+            continue
+        if len(current_texts) > res.shape[-2]:
+            paragraphs.append(current_texts[1:1+res.shape[-2]]) # we apparently cut the residuals short so skip
+            continue
+        raise ValueError(f"fewer texts than residuals, sus!!!")
+
+    shapes = [r.shape[-2] for r in data]
+
+    # check sizes match
+    for i, (p, d) in enumerate(zip(paragraphs, data)):
+        try:
+            assert len(p) == d.shape[-2], f"Paragraph length {len(p)} != data length {d.shape} (-2) for index {i}."
+        except AssertionError as e:
+            for j, t in enumerate(text_data[i]):
+                print(f"Paragraph {j}: {[t]}")
+            raise e
+
+    # flatten the paragraphs
+    # list[list[str]] -> list[str]
+    paragraphs = [p for sublist in paragraphs for p in sublist]
+    paragraphs = np.array(paragraphs)
+    # print(len(data))
+    # print(data)
+    data = torch.cat(data, dim=-2)  # Concatenate list of tensors
+    assert len(paragraphs) == data.shape[-2], f"concatenated number of paragraphs {len(paragraphs)} != data length {data.shape} (-2)"
     data = data.squeeze(0)
     data = einops.rearrange(data, 'layers samples dim -> samples layers dim')
+    if do_diff_data:
+        data[:, 1:] = data[:, 1:] - data[:, :-1]
     first_layer = data[:, 0:1, :]
-    data = data[:, 1:, :]  # Remove first layer
+    data = data[:, 1:, :]  # Remove first layer (raw token embeds)
 
     # Get cumulative activations data
     if "cum" in group_operation:
@@ -30,27 +97,45 @@ def load_res_data_internal(index, group_size=2, group_operation="cat"):
     if group_operation == "sum":
         data = einops.reduce(data, 'samples layers g dim -> samples layers dim', reduction="sum")
         group_size = 1
+    elif group_operation == "attn_only":
+        data = data[:, :, 0, :]
+        group_size = 1
+    elif group_operation == "mlp_only":
+        data = data[:, :, 1, :]
+        group_size = 1
     elif group_operation in ["cat", "cumcat"]:
         data = einops.rearrange(data, 'samples layers g dim -> samples layers (g dim)', g=group_size)
     else:
         raise ValueError(f"Unknown group operation: {group_operation}")
 
     # return for final processing
-    return data
+    return data, text_data, shapes
 
-def load_res_data(index, group_size=2, groups_to_load=0, group_operation="cat"):
-    data = load_res_data_internal(index, group_size, group_operation)
+def load_res_data(index, group_size=2, groups_to_load=0, group_operation="cat", do_diff_data=True, model_path="llama-3b"):
+    """
+    Load (flattened) residuals on one split.
+    Returns a tuple of (
+        residuals: tensor[samples (layersg gdim)],
+        paragraphs: list[str],
+    ).
+    """
+    data, paragraphs, shapes = load_res_data_internal(index, group_size, group_operation, do_diff_data, model_path=model_path)
     data = einops.rearrange(data[:, -groups_to_load:], 'samples layersg gdim -> samples (layersg gdim)')
-    return data.float()
+    return data.float(), paragraphs, shapes
 
-def load_res_data_layer(index, layer_idx, group_size=2, group_operation="cat"):
-    data = load_res_data_internal(index, group_size, group_operation)
+def load_res_data_layer(index, layer_idx, group_size=2, group_operation="cat", do_diff_data=True, model_path="llama-3b"):
+    data, paragraphs, shapes = load_res_data_internal(index, group_size, group_operation, do_diff_data, model_path=model_path)
     data = data[:, layer_idx, :]
-    return data.float()
+    return data.float(), paragraphs, shapes
 
-def load_embeds(index):
-    file_path = f"{folder}/sonar_embeds/embeds_{index:03d}.pt"
+def load_embeds(index, shapes, model_path="llama-3b"):
+    file_path = f"{folder}/sonar_embeds/{model_path}/embeds_{index:03d}.pt"
     data = torch.load(file_path, map_location="cpu", weights_only=False)
+    print("Loaded embeds, checking shapes...")
+    for idx, (d, s) in enumerate(zip(data, shapes)):
+        if len(d) != s:
+            data[idx] = d[:s]
+            print(f"{idx}: {d.shape} != {s}, modifying to {data[idx].shape=}")
     data = torch.cat(data, dim=0)
     return data.float()
 

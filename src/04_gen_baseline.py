@@ -16,7 +16,7 @@ from transformers import AutoTokenizer
 torch.set_grad_enabled(False)
 
 # %%
-N_CHEAT_TOKENS = 10
+# N_CHEAT_TOKENS = 2
 LIMIT = None
 
 # DEFINE CODE FOR BATCHED GENERATION
@@ -194,5 +194,13 @@ def main(verbose=False):
     print(f"Result written to {out_filename}")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n_cheat_tokens", type=int, default=0, help="Number of cheat tokens")
+    parser.add_argument("--res_index", type=int, help="Residual index")
+    parser.add_argument("--max_new_tokens", type=int, default=128, help="Maximum new tokens to generate")
+    parser.add_argument("--temperature", type=float, default=0.3, help="Temperature for generation")
+    args = parser.parse_args()
+    N_CHEAT_TOKENS = args.n_cheat_tokens
+    print(N_CHEAT_TOKENS)
     main()
 

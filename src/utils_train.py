@@ -19,11 +19,13 @@ class Trainer:
         self.device = device
 
         self._config["group_operation"] = "cat" if "group_operation" not in self._config else self._config["group_operation"]
-        welford_data = load_or_compute_welford_stats(self.c.groups_to_load, self.c.group_size, self.c.group_operation)
+        welford_data = load_or_compute_welford_stats(self.c.groups_to_load, self.c.group_size, self.c.group_operation, self.c.do_diff_data)
         self.normalizer_emb: Normalizer = welford_data.norm_emb
         self.normalizer_res: Normalizer = welford_data.norm_res
 
-        d_res = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation).shape[-1]
+        # d_res = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation).shape[-1]
+        res_data, text_data, shapes = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation)
+        d_res = res_data.shape[-1]
         self._config["d_res"] = d_res
 
         # Initialize model
@@ -62,15 +64,31 @@ class Trainer:
         else:
             raise ValueError(f"Unknown model type: {self.c.model_type}")
 
+    @torch.no_grad()
     def create_data_loader(self, file_idx, shuffle=False):
-        res_data = load_res_data(file_idx, groups_to_load=self.c.groups_to_load, group_operation=self.c.group_operation)
-        embeds = load_embeds(file_idx)
-        paragraphs = load_split_paragraphs(file_idx)
+        res_data, text_data, shapes = load_res_data(
+            file_idx, 
+            groups_to_load=self.c.groups_to_load, 
+            group_operation=self.c.group_operation,
+            do_diff_data=self.c.do_diff_data,
+            model_path="llama-3b",
+        )
+        embeds = load_embeds(file_idx, shapes, model_path="llama-3b")
+        paragraphs = []
+        for idx, (p, shape) in enumerate(zip(text_data, shapes)):
+            curr_paras = p[1:1+shape]
+            paragraphs.extend(curr_paras)
+            if len(curr_paras) != shape:
+                print(f"idx {idx}: Paragraph length {len(curr_paras)} != shape {shape} for index {file_idx}")
+            
         indices = torch.arange(len(paragraphs))
+        print(f"{res_data.shape=}, {embeds.shape=}, {indices.shape=}")
         dataset = TensorDataset(res_data, embeds, indices)
         __data_loader = DataLoader(dataset, batch_size=self.c.batch_size, shuffle=shuffle)
 
         def get_batch(__data_loader):
+            # we shuffle the [res_data, embeds, paragraphs] together
+            # but use tensor dataset so we need to manually get the texts here 
             for x, y, idxs in __data_loader:
                 texts = [paragraphs[i] for i in idxs.cpu().numpy()]
                 yield x, y, texts

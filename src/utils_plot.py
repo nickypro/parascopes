@@ -106,7 +106,7 @@ def get_data_dict_with_common_indices(data_dicts, compare_len=True, verbose=Fals
                       f" Len: {len_before[idx]:5} -> {len_after[idx]:5}")
     return data_dicts
 
-def load_rubric_results(file_path="processed_rubrics/all_data_dicts.json",
+def load_rubric_results(file_path="../data/processed_rubrics/all_data_dicts.json",
         indices_intersection=False,
         check_short_indices=False,
         check_references_match=False,
@@ -269,7 +269,7 @@ def plot_score_proportions_interactive(data_dicts, metric):
 if __name__ == "__main__":
 
     data_dicts = load_rubric_results(
-        file_path="processed_rubrics/all_data_dicts.json",
+        file_path="../data/processed_rubrics/all_data_dicts.json",
         indices_intersection=True,
         check_short_indices=True,
         check_references_match=True,

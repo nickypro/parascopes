@@ -3,7 +3,7 @@ import json  # for saving output as JSON
 from argparse import ArgumentParser
 import torch
 from tqdm import tqdm
-from utils_load_data import load_embeds, BASE_DIR
+from utils_load_data import load_res_data, load_embeds, BASE_DIR
 
 from sonar.inference_pipelines.text import EmbeddingToTextModelPipeline
 
@@ -48,6 +48,8 @@ def main():
     print("- using:")
     print(vec2text_model.device)
     print(vec2text_model.model.decoder.decoder_frontend.embed.weight.dtype)
+    model_path = "llama-3b"
+    os.makedirs(f"{BASE_DIR}/comparison_texts/{model_path}", exist_ok=True)
 
     # Define the fixed file to load.
     #input_path  = f"{BASE_DIR}/inferred_outputs/inferred_embeds_iqzigl1h.pt"
@@ -56,16 +58,32 @@ def main():
     #output_path = f"{BASE_DIR}/comparison_texts/linear_train_decoded_texts.json"
     #input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_iqzigl1h_98_mlp.pt"
     #output_path = f"{BASE_DIR}/comparison_texts/mlp_train_decoded_texts.json"
-    input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_fnjt2per_99_linear.pt"
-    output_path = f"{BASE_DIR}/comparison_texts/linear_ce_decoded_texts.json"
+
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_e5kuwe04_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v1.json"
+
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_6t5yk65v_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v2_sum.json"
+
+    input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_86sh3hsg_999_linear.pt"
+    output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v3_nodiff.json"
+
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_r13fvayz_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v4_attn_only.json"
+
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_w7szmys3_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v5_mlp_only.json"
+
+
     if not os.path.isfile(input_path):
         print(f"File not found: {input_path}")
         return
     embeds = torch.load(input_path).to(device, torch.float16)
 
 
-    # embeds = load_embeds(99).to(device)
-    # output_path = "comparison_texts/original_decoded_output.json"
+    # res, paragraphs, shapes = load_res_data(999, model_path=model_path)
+    # embeds = load_embeds(999, shapes, model_path=model_path).to(device, torch.float16)
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/original_decoded_output.json"
 
     print(f"Decoding embeds: {embeds.shape}")
     decoded_texts = decode_file(embeds, vec2text_model, args.batch_size, device)

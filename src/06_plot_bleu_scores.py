@@ -6,6 +6,18 @@ import numpy as np
 
 data_dicts = load_rubric_results(indices_intersection=False)
 
+print(data_dicts.keys())
+data_dicts = {
+    "TAE": data_dicts["linear"],
+    "Cont.": data_dicts["continued"],
+    "baseline": data_dicts["baseline"],
+    "cheat-1": data_dicts["cheat-1"],
+    "cheat-5": data_dicts["cheat-5"],
+    "cheat-10": data_dicts["cheat-10"],
+    "regenerated": data_dicts["regenerated"],
+    "auto-decoded": data_dicts["auto-decoded"],
+}
+
 # %%
 
 # dict_keys(['mlp', 'linear', 'continued', 'baseline', 'cheat-1', 'cheat-5', 'cheat-10', 'regenerated', 'auto-decoded'])
@@ -90,20 +102,25 @@ results = bleurt.compute(
 print(f"Score: {results['scores']}")
 # %%
 
+import numpy as np
 bleurt_scores = {}
 
-for data_type, data_dict in data_dicts.items():
-    bleurt_scores[data_type] = []
-    batch_size = 64
-    # Process in batches of 32
-    data_items = list(data_dict.items())
-    for i in tqdm(range(0, len(data_items), batch_size)):
-        batch = data_items[i:i + batch_size]
-        ref_texts = [datum['reference'] for _, datum in batch]
-        gen_texts = [datum['comparison'] for _, datum in batch]
-        scores = bleurt.compute(predictions=gen_texts, references=ref_texts)
-        bleurt_scores[data_type].extend(scores['scores'])
-    print(f"{data_type}: {np.mean(bleurt_scores[data_type]):.2f} ± {np.std(bleurt_scores[data_type]):.2f}")
+try: 
+    bleurt_scores = json.load(open("../data/cached_results/bleurt_scores.json", "r"))
+except:
+    for data_type, data_dict in data_dicts.items():
+
+        bleurt_scores[data_type] = []
+        batch_size = 64
+        # Process in batches of 32
+        data_items = list(data_dict.items())
+        for i in tqdm(range(0, len(data_items), batch_size)):
+            batch = data_items[i:i + batch_size]
+            ref_texts = [datum['reference'] for _, datum in batch]
+            gen_texts = [datum['comparison'] for _, datum in batch]
+            scores = bleurt.compute(predictions=gen_texts, references=ref_texts)
+            bleurt_scores[data_type].extend(scores['scores'])
+        print(f"{data_type}: {np.mean(bleurt_scores[data_type]):.2f} ± {np.std(bleurt_scores[data_type]):.2f}")
 
 # %%
 
@@ -122,14 +139,37 @@ df_plot = pd.DataFrame({
     "Comparison Type": [label for label, scores in bleurt_scores.items() for _ in scores]
 })
 
+ones = np.ones(3)
+base = ones * 0.6
+r = np.array([0.0, 0.2, 0.4])
+g = np.array([0.2, 0.4, 0.0])
+b = np.array([0.4, 0.0, 0.2])
+
+colour_map = {
+    "TAE": base + r ,
+    "Cont.": base + r,
+    "blind": base + b,
+    "cheat-1": base + b,
+    "cheat-5": base + b,
+    "cheat-10": base + b,
+    "regenerated": base + g,
+    "auto-decoded": base + g,
+}
+# Rename baseline to blind in the dataframe
+df_plot['Comparison Type'] = df_plot['Comparison Type'].replace('baseline', 'blind')
+
 # Create custom color palette
 palette = {}
 for i, label in enumerate(df_plot["Comparison Type"].unique()):
-    hue = i * 150 % 360
-    r = 0.6 + 0.3 * np.cos(np.radians(hue))
-    g = 0.6 + 0.3 * np.cos(np.radians(hue - 120))
-    b = 0.6 + 0.3 * np.cos(np.radians(hue + 120))
-    palette[label] = (r, g, b)
+    if colour_map is None:
+        hue = i * 150 % 360
+        r = 0.6 + 0.3 * np.cos(np.radians(hue))
+        g = 0.6 + 0.3 * np.cos(np.radians(hue - 120))
+        b = 0.6 + 0.3 * np.cos(np.radians(hue + 120))
+        palette[label] = (r, g, b)
+    else:  
+        rgb = colour_map[label]
+        palette[label] = (rgb[0], rgb[1], rgb[2])
 
 # Create violin plot
 sns.violinplot(data=df_plot, x="Comparison Type", y="BLEURT Score",
@@ -147,4 +187,7 @@ print(df_plot.groupby("Comparison Type")["BLEURT Score"].agg(["mean", "std"]))
 for data_type, scores in bleurt_scores.items():
     print(f"{data_type}: {min(scores)} to {max(scores)}")
 
+# %%
+# import json
+# json.dump(bleurt_scores, open("bleurt_scores.json", "w"))
 # %%

@@ -1,16 +1,16 @@
 # %% FUNCTION THAT GETS CE LOSS FOR SONAR DECODER
-from sonar.models.sonar_text import (
-    load_sonar_text_decoder_model,
-    load_sonar_text_encoder_model,
-    load_sonar_tokenizer,
-)
+# from sonar.models.sonar_text import (
+#     load_sonar_text_decoder_model,
+#     load_sonar_text_encoder_model,
+#     load_sonar_tokenizer,
+# )
 import torch
 import torch.nn.functional as F
 from sonar.inference_pipelines.text import EmbeddingToTextModelPipeline
 from sonar.inference_pipelines.text import TextToEmbeddingModelPipeline
-from fairseq2.models.sequence import SequenceBatch
-from fairseq2.nn.padding import PaddingMask
-from fairseq2.data.text import TextTokenDecoder
+# from fairseq2.models.sequence import SequenceBatch
+# from fairseq2.nn import PaddingMask
+# from fairseq2.data.text import TextTokenDecoder
 from sonar.nn.conditional_decoder_model import ConditionalTransformerDecoderModel
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
