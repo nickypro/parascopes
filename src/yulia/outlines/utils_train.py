@@ -113,13 +113,13 @@ class Trainer:
         example_chunk = self.train_chunks[0]
         res_list = load_residuals(
             example_chunk,
-            self.c.hf_repo_residuals,
             self.c.local_residuals_dir,
+            self.c.hf_repo_residuals,
         )
         embeds_example = load_embeds(
             example_chunk,
-            self.c.hf_repo_embeds,
             self.c.local_embeds_dir,
+            self.c.hf_repo_embeds,
         )
 
         if len(res_list) == 0:
@@ -184,13 +184,13 @@ class Trainer:
         """
         res_list = load_residuals(
             chunk_id,
-            self.c.hf_repo_residuals,
             self.c.local_residuals_dir,
+            self.c.hf_repo_residuals,
         )
         embeds = load_embeds(
             chunk_id,
-            self.c.hf_repo_embeds,
             self.c.local_embeds_dir,
+            self.c.hf_repo_embeds,
         )
 
         n_res = len(res_list)

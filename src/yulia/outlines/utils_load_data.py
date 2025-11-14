@@ -16,7 +16,8 @@ from typing import Optional, Union
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 
-from . import config
+
+import config
 
 
 def _load_torch_file(file_path: Path):
