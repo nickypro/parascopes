@@ -19,12 +19,12 @@ class Trainer:
         self.device = device
 
         self._config["group_operation"] = "cat" if "group_operation" not in self._config else self._config["group_operation"]
-        welford_data = load_or_compute_welford_stats(self.c.groups_to_load, self.c.group_size, self.c.group_operation, self.c.do_diff_data)
+        welford_data = load_or_compute_welford_stats(self.c.groups_to_load, self.c.group_size, self.c.group_operation, self.c.do_diff_data, self.c.model_path)
         self.normalizer_emb: Normalizer = welford_data.norm_emb
         self.normalizer_res: Normalizer = welford_data.norm_res
 
         # d_res = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation).shape[-1]
-        res_data, text_data, shapes = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation)
+        res_data, text_data, shapes = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation, self.c.model_path)
         d_res = res_data.shape[-1]
         self._config["d_res"] = d_res
 
@@ -71,9 +71,9 @@ class Trainer:
             groups_to_load=self.c.groups_to_load, 
             group_operation=self.c.group_operation,
             do_diff_data=self.c.do_diff_data,
-            model_path="llama-3b",
+            model_path=self.c.model_path,
         )
-        embeds = load_embeds(file_idx, shapes, model_path="llama-3b")
+        embeds = load_embeds(file_idx, shapes, model_path=self.c.model_path)
         paragraphs = []
         for idx, (p, shape) in enumerate(zip(text_data, shapes)):
             curr_paras = p[1:1+shape]

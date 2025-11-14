@@ -141,15 +141,14 @@ for name in existing_files:
 batch = []
 for i, data in enumerate(tqdm(dataset)):
     batch_index = i // 1000
+    if i > 0 and i % 1000 == 0 and len(batch) > 0:
+        torch.save(batch, f"./tensors/{model}/res_data_{batch_index - 1:03d}.pt")
+        existing_batch_indices.add(batch_index - 1)
+        batch = []
     
     # Skip if this batch already exists
     if batch_index in existing_batch_indices:
         continue
-    
-    if i > 0 and i % 1000 == 0:
-        torch.save(batch, f"./tensors/{model}/res_data_{batch_index - 1:03d}.pt")
-        existing_batch_indices.add(batch_index - 1)
-        batch = []
 
     act_data = get_act_data(data["split_text"], verbose=False)
 

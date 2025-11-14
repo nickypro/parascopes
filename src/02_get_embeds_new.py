@@ -10,7 +10,7 @@ torch.set_grad_enabled(False)
 # %%
 # Choose the dataset to mirror the splits used in get_residuals_new
 # Options: "llama-3b", "gemma-4b", "gemma-12b", "gemma-27b"
-model = "gemma-4b"
+model = "gemma-27b"
 
 if model == "llama-3b":
     dataset = load_dataset("annnettte/fineweb-llama3b-texts-split")["train"]

@@ -16,7 +16,7 @@ def load_res_data_internal(
         group_size=2,
         group_operation="cat",
         do_diff_data=True,
-        model_path="llama-3b",
+        model_path=None,
     ):
     f"""
     Load pre-computed residuals from model.
@@ -74,8 +74,9 @@ def load_res_data_internal(
     # list[list[str]] -> list[str]
     paragraphs = [p for sublist in paragraphs for p in sublist]
     paragraphs = np.array(paragraphs)
-    # print(len(data))
-    # print(data)
+    #print(data)
+    #print(f"loaded from {file_path}")
+    #print(f"{len(data)=}")
     data = torch.cat(data, dim=-2)  # Concatenate list of tensors
     assert len(paragraphs) == data.shape[-2], f"concatenated number of paragraphs {len(paragraphs)} != data length {data.shape} (-2)"
     data = data.squeeze(0)
@@ -111,7 +112,7 @@ def load_res_data_internal(
     # return for final processing
     return data, text_data, shapes
 
-def load_res_data(index, group_size=2, groups_to_load=0, group_operation="cat", do_diff_data=True, model_path="llama-3b"):
+def load_res_data(index, group_size=2, groups_to_load=0, group_operation="cat", do_diff_data=True, model_path=None):
     """
     Load (flattened) residuals on one split.
     Returns a tuple of (
@@ -123,12 +124,12 @@ def load_res_data(index, group_size=2, groups_to_load=0, group_operation="cat", 
     data = einops.rearrange(data[:, -groups_to_load:], 'samples layersg gdim -> samples (layersg gdim)')
     return data.float(), paragraphs, shapes
 
-def load_res_data_layer(index, layer_idx, group_size=2, group_operation="cat", do_diff_data=True, model_path="llama-3b"):
+def load_res_data_layer(index, layer_idx, group_size=2, group_operation="cat", do_diff_data=True, model_path=None):
     data, paragraphs, shapes = load_res_data_internal(index, group_size, group_operation, do_diff_data, model_path=model_path)
     data = data[:, layer_idx, :]
     return data.float(), paragraphs, shapes
 
-def load_embeds(index, shapes, model_path="llama-3b"):
+def load_embeds(index, shapes, model_path=None):
     file_path = f"{folder}/sonar_embeds/{model_path}/embeds_{index:03d}.pt"
     data = torch.load(file_path, map_location="cpu", weights_only=False)
     print("Loaded embeds, checking shapes...")
