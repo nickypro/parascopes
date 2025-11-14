@@ -1,29 +1,42 @@
 import os
 from dotenv import load_dotenv
+from pathlib import Path
+
 
 load_dotenv()
 
 DEEPINFRA_API_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
 DEEPINFRA_API_KEY = os.getenv("DEEPINFRA_API_KEY")  
 
-MODELS = [
-    "meta-llama/Llama-3.3-70B-Instruct"
-]
 
 # HuggingFace original source data config
 HF_DATASET = "annnettte/fineweb-gemma4b-texts"
 HF_SPLIT = "train"
-HF_REPO_ID = os.getenv("HF_REPO_ID", "yulia-volkova/parascopes-outlines-data")  
-HF_PRIVATE = True  
+HF_PRIVATE = True
 
 N_SAMPLES = 5000
 
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
+RESULTS_DIR = Path(__file__).parent / "results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
+
+HF_OUTLINES_REPO = "yulia-volkova/parascopes-outlines-gemma4b"
+
+HF_RESIDUALS_REPO = "yulia-volkova/parascopes-outlines-gemma4b"
+HF_EMBEDDINGS_REPO = "yulia-volkova/gemma4b-outlines-embeddings"
+
+# Optional local directories for chunks (can leave as None)
+LOCAL_RESIDUALS_DIR = None  # e.g. Path("/data/residual_chunks")
+LOCAL_EMBEDS_DIR    = None  # e.g. Path("/data/embed_chunks")
 
 VERSION = "5.0"  
 GENERATIONS_CSV = os.path.join(RESULTS_DIR, f"outlines_{VERSION}_n{N_SAMPLES}.csv")
 
+
+
+# model to generate outlines
+MODELS = [
+    "meta-llama/Llama-3.3-70B-Instruct"
+]
 OUTLINE_PROMPT_RULES = """
 Return a short, high-level bullet-point outline of the main ideas from the text you are given.
 Do NOT include any reasoning.
