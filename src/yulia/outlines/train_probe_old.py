@@ -24,6 +24,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol, Tuple
 from dataclasses import dataclass
+import torch
+import torch.nn as nn
+import einops
+from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
+from huggingface_hub import hf_hub_download
+from .normalizers import WelfordStats, Normalizer, compute_normalizers as _compute_normalizers, \
+    save_normalizers as _save_normalizers
 
 # -------- logging setup --------
 log_dir = Path(__file__).parent / "logs" / "probe_training"
@@ -38,22 +46,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# -------- imports --------
-import torch
-import torch.nn as nn
-import einops
-from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
-from huggingface_hub import hf_hub_download
-
 # -------- config defaults --------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float32
 
+MODEL_NAME = 'llama3b'
 HF_REPO_ID_RESIDUALS = "nickypro/fineweb-llama3b-residuals"
 HF_REPO_ID_EMBEDS    = "yulia-volkova/llama-3b-outlines-embeddings_new"
 
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results", MODEL_NAME)
 SAMPLES_PER_CHUNK = 1000  # invariant
 
 # ================= Tracker protocol ======================
@@ -72,7 +73,6 @@ class NoOpTracker:
     def log(self, data: Dict, step: Optional[int] = None): pass
     def log_artifact(self, path: str, name: str, type_: str, description: str = ""): pass
     def finish(self): pass
-# ===========================================================================
 
 # ---------------------- HF OR LOCAL loaders (residuals & embeds) ---------------------
 def _try_load_local(local_dir: Optional[str], filename: str):
@@ -111,7 +111,7 @@ def _load_with_fallback(
     """
     err_msgs = []
 
-    def _maybe_cast(x):
+    def _optional_cast(x):
         if cast_dtype is None:
             return x
         # try to cast tensors in sensible structures
@@ -124,7 +124,7 @@ def _load_with_fallback(
             pass
         return x
 
-    # order A then B
+
     order = ["local", "hf"] if prefer_local else ["hf", "local"]
 
     for source in order:
@@ -132,11 +132,11 @@ def _load_with_fallback(
             if source == "local":
                 obj = _try_load_local(local_dir, fname)
                 if obj is not None:
-                    return _maybe_cast(obj), f"local:{local_dir}/{fname}"
+                    return _optional_cast(obj), f"local:{local_dir}/{fname}"
             else:
                 if hf_repo_id:
                     obj = _try_load_hf(hf_repo_id, fname, hf_token, force=False)
-                    return _maybe_cast(obj), f"hf:{hf_repo_id}/{fname}"
+                    return _optional_cast(obj), f"hf:{hf_repo_id}/{fname}"
         except Exception as e:
             err_msgs.append(f"{source} error: {e}")
 
@@ -144,7 +144,7 @@ def _load_with_fallback(
     if not prefer_local and hf_repo_id and retry_force_hf_on_failure:
         try:
             obj = _try_load_hf(hf_repo_id, fname, hf_token, force=True)
-            return _maybe_cast(obj), f"hf-forced:{hf_repo_id}/{fname}"
+            return _optional_cast(obj), f"hf-forced:{hf_repo_id}/{fname}"
         except Exception as e:
             err_msgs.append(f"hf forced error: {e}")
 
@@ -190,171 +190,12 @@ def _load_embeddings_chunk(
     logger.info(f"[load] embeddings {chunk_id:03d} ← {src}")
     return obj
 
-# ====================== Normalization (Welford) ============================
-@dataclass
-class WelfordStats:
-    mean: torch.Tensor = None
-    m2: torch.Tensor = None
-    count: int = 0
-    def update(self, new_data: torch.Tensor):
-        if self.mean is None:
-            self.mean = torch.zeros_like(new_data[0])
-            self.m2 = torch.zeros_like(new_data[0])
-            self.count = 0
-        for x in new_data:
-            self.count += 1
-            delta = x - self.mean
-            self.mean += delta / self.count
-            delta2 = x - self.mean
-            self.m2 += delta * delta2
-    @property
-    def std(self):
-        denom = max(self.count - 1, 1)
-        return torch.sqrt(self.m2 / denom + 1e-6)
-
-class Normalizer:
-    def __init__(self, mean: torch.Tensor, std: torch.Tensor):
-        self.mean = mean
-        self.std = std
-    def normalize(self, x: torch.Tensor) -> torch.Tensor:
-        return (x - self.mean) / (self.std + 1e-6)
-    def restore(self, x: torch.Tensor) -> torch.Tensor:
-        return x * (self.std + 1e-6) + self.mean
-
-# ------------------ Pass 1: compute stats on a subset of chunks --------------------
-def compute_normalizers(
-    norm_chunk_ids: List[int],
-    hf_repo_residuals: str,
-    hf_repo_embeds: str,
-    hf_token: Optional[str],
-    local_residuals_dir: Optional[str],
-    local_embeds_dir: Optional[str],
-    prefer_local: bool,
-) -> Tuple[Normalizer, Normalizer]:
-    """
-    Compute mean/std using Welford over a small subset of chunks.
-    Skip any chunk where residuals or embeddings length != 1000.
-    """
-    print("\nComputing normalization stats (subset)...")
-    logger.info("Computing normalization stats (subset)...")
-
-    res_stats = WelfordStats()
-    embed_stats = WelfordStats()
-    res_reshape = "layer para dim -> para layer dim"
-
-    used, skipped = 0, []
-
-    for chunk_id in tqdm(norm_chunk_ids, desc="Stats chunks"):
-        try:
-            res_list = _load_residuals_chunk(
-                chunk_id, hf_repo_residuals, hf_token, local_residuals_dir, prefer_local
-            )
-            embeds   = _load_embeddings_chunk(
-                chunk_id, hf_repo_embeds, hf_token, local_embeds_dir, prefer_local
-            )
-
-            n_res = len(res_list)
-            n_emb = embeds.shape[0] if isinstance(embeds, torch.Tensor) else len(embeds)
-
-            if n_res != SAMPLES_PER_CHUNK or n_emb != SAMPLES_PER_CHUNK:
-                logger.warning(f"[norm] skip chunk {chunk_id:03d}: res={n_res}, emb={n_emb} (expected 1000).")
-                skipped.append(chunk_id); continue
-
-            for res, embed in zip(res_list, embeds):
-                res_all = res["res"].to(dtype=DTYPE)                  # [n_layers, n_para, d_model]
-                first_para = res_all[:, :1, :]                        # first paragraph only
-                res_tensor = einops.rearrange(first_para, res_reshape)  # [1, n_layers, d_model]
-                res_stats.update(res_tensor)
-                embed_stats.update(embed)
-
-            used += 1
-
-        except Exception as e:
-            logger.warning(f"[norm] failed chunk {chunk_id:03d}: {e}. Skipping.")
-            skipped.append(chunk_id); continue
-
-    if used == 0:
-        raise RuntimeError("No valid chunks for normalization (after skipping mismatches).")
-
-    logger.info(f"[norm] used {used}/{len(norm_chunk_ids)} chunks; skipped={skipped}")
-
-    res_normalizer = Normalizer(res_stats.mean, res_stats.std)
-    embed_normalizer = Normalizer(embed_stats.mean, embed_stats.std)
-    return res_normalizer, embed_normalizer
-
-# ------------------ HF cache cleaning utilities ----------------------------
-def _hf_cache_dir() -> Path:
-    base = os.environ.get("HF_HOME")
-    return Path(base) if base else Path.home() / ".cache" / "huggingface"
-
-def _dir_size_gb(root: Path) -> float:
-    total = 0
-    try:
-        for dp, _dn, fnames in os.walk(root):
-            for f in fnames:
-                try:
-                    total += (Path(dp) / f).stat().st_size
-                except Exception:
-                    pass
-    except Exception:
-        return 0.0
-    return total / (1024 ** 3)
-
-def maybe_clean_hf_cache(threshold_gb: float, tracker: Optional[Tracker] = None) -> None:
-    """
-    If the HF cache directory exceeds threshold_gb, wipe it.
-    Logs size to tracker as cache/size_gb and cache/cleaned.
-    """
-    cache = _hf_cache_dir()
-    size_gb = _dir_size_gb(cache) if cache.exists() else 0.0
-    logger.info(f"[cache] HF cache at {cache} ~ {size_gb:.2f} GB")
-    # only log if tracker was already initialized by caller
-    if tracker is not None and getattr(tracker, "_run", None):
-        try:
-            tracker.log({"cache/size_gb": float(size_gb)})
-        except Exception:
-            pass
-
-    if size_gb <= threshold_gb:
-        return
-
-    logger.warning(f"[cache] Exceeds {threshold_gb:.1f} GB → cleaning HF cache at {cache}")
-
-    cleaned = False
-    try:
-        from huggingface_hub import delete_cache_dir
-        delete_cache_dir(cache_dir=str(cache))
-        cleaned = True
-    except Exception:
-        pass
-
-    if not cleaned:
-        try:
-            for child in cache.glob("*"):
-                try:
-                    if child.is_dir():
-                        import shutil
-                        shutil.rmtree(child, ignore_errors=True)
-                    else:
-                        child.unlink(missing_ok=True)
-                except Exception:
-                    pass
-            cleaned = True
-        except Exception as e:
-            logger.error(f"[cache] Failed to clean HF cache: {e}")
-
-    if cleaned and tracker is not None and getattr(tracker, "_run", None):
-        try:
-            tracker.log({"cache/cleaned": 1})
-        except Exception:
-            pass
 
 # ------------------ Streaming dataset (global 90/10 split) ------------------
 class StreamingOutlineDataset(Dataset):
     """Stream samples chunk-by-chunk from HF or local (LRU cache), normalize on-the-fly, global split.
        Entire chunks are marked BAD and skipped if res/emb length != 1000.
     """
-
     def __init__(
         self,
         hf_repo_residuals: str,
@@ -651,15 +492,6 @@ class ProbeTrainer:
             "val_loss": val_loss,
         }, checkpoint_path)
 
-# ---------------------- helpers ------------------------------
-def _save_normalizers(res_normalizer: Normalizer, embed_normalizer: Normalizer, out_dir: Path):
-    out_dir.mkdir(parents=True, exist_ok=True)
-    res_path = out_dir / "res_normalizer.pt"
-    emb_path = out_dir / "embed_normalizer.pt"
-    torch.save({"mean": res_normalizer.mean, "std": res_normalizer.std}, res_path)
-    torch.save({"mean": embed_normalizer.mean, "std": embed_normalizer.std}, emb_path)
-    return str(res_path), str(emb_path)
-
 def _log_epoch_chunk_selection(
     tracker: "Tracker",
     epoch_idx: int,
@@ -708,8 +540,6 @@ def train_probe(
     chunks_per_epoch: Optional[int] = None,
     chunk_seed: int = 42,  # kept for API compatibility; unused now that we don't shuffle
     eval_every: int = 1000,  # intermittent quick-eval cadence (steps)
-    hf_cache_clean_gb: float = 15.0,
-    hf_cache_clean_after_norm: bool = False,
     limit_layers: Optional[int] = None,
     local_residuals_dir: Optional[str] = None,
     local_embeds_dir: Optional[str] = None,
@@ -736,15 +566,18 @@ def train_probe(
 
     # Normalization on a subset of the *full* range (first norm_chunks from full order)
     norm_chunk_ids = all_chunks[:min(norm_chunks, len(all_chunks))]
-    res_norm, emb_norm = compute_normalizers(
-        norm_chunk_ids,
-        hf_repo_residuals, hf_repo_embeds, hf_token,
-        local_residuals_dir, local_embeds_dir, prefer_local
+    res_norm, emb_norm = _compute_normalizers(
+        norm_chunk_ids=norm_chunk_ids,
+        hf_repo_residuals=hf_repo_residuals,
+        hf_repo_embeds=hf_repo_embeds,
+        hf_token=hf_token,
+        local_residuals_dir=local_residuals_dir,
+        local_embeds_dir=local_embeds_dir,
+        prefer_local=prefer_local,
+        load_residuals_chunk=_load_residuals_chunk,
+        load_embeddings_chunk=_load_embeddings_chunk,
+        dtype=DTYPE
     )
-
-    # Optional: clean cache right after normalization
-    # if hf_cache_clean_after_norm:
-    #     maybe_clean_hf_cache(hf_cache_clean_gb, tracker=tracker)
 
     # Save normalizers locally (log via tracker)
     res_p, emb_p = _save_normalizers(res_norm, emb_norm, Path(RESULTS_DIR) / "normalizers")
@@ -786,8 +619,6 @@ def train_probe(
         "chunks_per_epoch": chunks_per_epoch, "chunk_seed": chunk_seed,
         "resume_from": resume_from, "results_dir": str(RESULTS_DIR),
         "checkpoint_dir": str(checkpoint_dir),
-        "hf_cache_clean_gb": hf_cache_clean_gb,
-        "hf_cache_clean_after_norm": bool(hf_cache_clean_after_norm),
         "limit_layers": limit_layers,
         "local_residuals_dir": local_residuals_dir,
         "local_embeds_dir": local_embeds_dir,
@@ -936,13 +767,10 @@ def train_probe(
         trainer.tracker.log_artifact(ckpt_path, name=f"checkpoint-epoch-{epoch+1}",
                                      type_="model", description=f"Linear probe after epoch {epoch+1}")
 
-        # Clean HF cache if too big
-        maybe_clean_hf_cache(hf_cache_clean_gb, tracker=trainer.tracker)
-
         trainer.scheduler.step()
 
     tracker.finish()
-    return trainer, {"note": "ordered streaming with intermittent quick evals + HF/local fallback + HF cache autoclean"}
+    return trainer, {"note": "ordered streaming with intermittent quick evals + HF/local fallback"}
 
 if __name__ == "__main__":
     import argparse
@@ -972,10 +800,6 @@ if __name__ == "__main__":
                         help="(Kept for compatibility) Seed ignored when not shuffling chunks.")
     parser.add_argument("--eval-every", type=int, default=1000,
                         help="Run a quick audit eval every N steps during training (default: 1000).")
-    parser.add_argument("--hf-cache-clean-gb", type=float, default=15.0,
-                        help="If HF cache exceeds this many GB, wipe it after each epoch.")
-    parser.add_argument("--hf-cache-clean-after-norm", action="store_true",
-                        help="Also clean HF cache immediately after the normalization pass.")
     parser.add_argument("--limit-layers", type=int, default=None,
                         help="If set, slice residuals to the first N layers before feeding the model.")
     # local fallbacks
@@ -1010,8 +834,6 @@ if __name__ == "__main__":
         chunks_per_epoch=args.chunks_per_epoch,
         chunk_seed=args.chunk_seed,
         eval_every=args.eval_every,
-        hf_cache_clean_gb=args.hf_cache_clean_gb,
-        hf_cache_clean_after_norm=args.hf_cache_clean_after_norm,
         limit_layers=args.limit_layers,
         local_residuals_dir=args.local_residuals_dir,
         local_embeds_dir=args.local_embeds_dir,
