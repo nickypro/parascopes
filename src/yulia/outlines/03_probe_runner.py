@@ -6,7 +6,7 @@ import torch
 import wandb
 
 from utils_train import Trainer
-from normalizers import SAMPLES_PER_CHUNK
+from utils_normalizers import SAMPLES_PER_CHUNK
 
 from config import (
     HF_RESIDUALS_REPO,
@@ -14,7 +14,7 @@ from config import (
     LOCAL_RESIDUALS_DIR,
     LOCAL_EMBEDS_DIR,
 )
-from probe_config import (
+from config_probe import (
     PROBE_WANDB_PROJECT,
     get_probe_train_config,
 )

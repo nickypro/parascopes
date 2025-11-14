@@ -13,34 +13,9 @@ from tqdm import tqdm
 import wandb
 import einops
 
-from normalizers import compute_normalizers, Normalizer, SAMPLES_PER_CHUNK
+from utils_normalizers import compute_normalizers, Normalizer, SAMPLES_PER_CHUNK
 from utils_load_data import load_residuals, load_embeds
 
-
-config = {
-    # data / paths
-    "hf_repo_residuals": "nickypro/fineweb-llama3b-residuals",
-    "hf_repo_embeds":    "yulia-volkova/llama-3b-outlines-embeddings_new",
-    "local_residuals_dir": None,   # or "/path/to/res_chunks"
-    "local_embeds_dir":    None,   # or "/path/to/embed_chunks"
-
-    # chunks
-    "start_chunk": 0,
-    "end_chunk": 4,       # inclusive
-    "norm_chunks": 2,     # how many initial chunks to use for normalization
-    "val_last_k": 1,       # how many last chunks to hold out for validation
-
-
-    "batch_size": 256,
-    "num_epochs": 3,
-    "d_sonar": 1024,
-    "lr": 1e-4,
-    "lr_decay": 0.8,
-    "weight_decay": 1e-6,
-    "limit_layers": None,  # or an int, e.g. 32
-
-    "checkpoint_dir": "./checkpoints/probe_runs",
-}
 
 
 class LinearProbe(nn.Module):

@@ -30,7 +30,7 @@ import einops
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from huggingface_hub import hf_hub_download
-from .normalizers import WelfordStats, Normalizer, compute_normalizers as _compute_normalizers, \
+from src.yulia.outlines.utils_normalizers import WelfordStats, Normalizer, compute_normalizers as _compute_normalizers, \
     save_normalizers as _save_normalizers
 
 # -------- logging setup --------
