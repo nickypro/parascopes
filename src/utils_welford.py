@@ -33,7 +33,13 @@ class WelfordData:
     norm_res: Normalizer
     norm_emb: Normalizer
 
-def load_or_compute_welford_stats(groups_to_load, group_size, group_operation, do_diff_data, model_path="llama-3b"):
+def load_or_compute_welford_stats(
+        groups_to_load: int,
+        group_size: int,
+        group_operation: str,
+        do_diff_data: bool,
+        model_path: str,
+    ):
     """Load or compute Welford statistics for normalization"""
     os.makedirs('../data/welford_data', exist_ok=True)
     welford_file = f'../data/welford_data/welford_stats_10_{groups_to_load}_{group_size}_{group_operation}_{do_diff_data}_{model_path}.pkl'
