@@ -5,3 +5,7 @@ data/
 figures/
 .venv/
 .qodo
+src/tensors
+src/hdd_cache
+src/checkpoints
+src/sonar_embeds
