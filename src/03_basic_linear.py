@@ -21,7 +21,8 @@ def train_linear():
             'num_epochs': 10,
             'num_files': 99,
             'group_size': 1,
-            'groups_to_load': 14,
+            'groups_to_load': 62,
+            "model_path": "gemma-27b",
             'lr': 2e-5,
             'lr_decay': 0.8,
             'weight_decay': 2e-5,
@@ -31,7 +32,6 @@ def train_linear():
             # 'd_res': 61440,
             "do_diff_data": True,
             "group_operation": "cat",
-            "model_path": "gemma-4b",
         }
         wandb.config.update(config)
 
