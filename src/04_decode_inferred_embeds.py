@@ -23,7 +23,16 @@ def decode_file(embeds, vec2text_model, batch_size, device):
         decoded_texts.extend(decoded_batch)
     return decoded_texts
 
-def main():
+# Create the SONAR decoding pipeline.
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+vec2text_model = EmbeddingToTextModelPipeline(
+    decoder="text_sonar_basic_decoder",
+    tokenizer="text_sonar_basic_encoder",
+    device=DEVICE
+)
+vec2text_model = vec2text_model.to(torch.float16)
+
+def main(input_path, output_path):
     parser = ArgumentParser(
         description='Decode SONAR embeddings from a specific inferred embed file'
     )
@@ -33,23 +42,13 @@ def main():
     args = parser.parse_args()
 
     # Determine the device for computation.
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Create the SONAR decoding pipeline.
-    vec2text_model = EmbeddingToTextModelPipeline(
-        decoder="text_sonar_basic_decoder",
-        tokenizer="text_sonar_basic_encoder",
-        device=device
-    )
-    vec2text_model = vec2text_model.to(torch.float16)
 
     torch.compile(vec2text_model)
 
     print("- using:")
     print(vec2text_model.device)
     print(vec2text_model.model.decoder.decoder_frontend.embed.weight.dtype)
-    model_path = "llama-3b"
-    os.makedirs(f"{BASE_DIR}/comparison_texts/{model_path}", exist_ok=True)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     # Define the fixed file to load.
     #input_path  = f"{BASE_DIR}/inferred_outputs/inferred_embeds_iqzigl1h.pt"
@@ -65,8 +64,8 @@ def main():
     # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_6t5yk65v_999_linear.pt"
     # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v2_sum.json"
 
-    input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_86sh3hsg_999_linear.pt"
-    output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v3_nodiff.json"
+    # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_86sh3hsg_999_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v3_nodiff.json"
 
     # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_r13fvayz_999_linear.pt"
     # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v4_attn_only.json"
@@ -74,11 +73,13 @@ def main():
     # input_path = f"{BASE_DIR}/inferred_outputs/inferred_embeds_w7szmys3_999_linear.pt"
     # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/linear_decoded_texts_v5_mlp_only.json"
 
+    # input_path = f"{BASE_DIR}/inferred_outputs/gemma-12b/inferred_embeds_wbjiyuhi_099_linear.pt"
+    # output_path = f"{BASE_DIR}/comparison_texts/gemma-12b/linear_decoded_texts_.json"
 
     if not os.path.isfile(input_path):
         print(f"File not found: {input_path}")
         return
-    embeds = torch.load(input_path).to(device, torch.float16)
+    embeds = torch.load(input_path).to(DEVICE, torch.float16)
 
 
     # res, paragraphs, shapes = load_res_data(999, model_path=model_path)
@@ -86,7 +87,7 @@ def main():
     # output_path = f"{BASE_DIR}/comparison_texts/{model_path}/original_decoded_output.json"
 
     print(f"Decoding embeds: {embeds.shape}")
-    decoded_texts = decode_file(embeds, vec2text_model, args.batch_size, device)
+    decoded_texts = decode_file(embeds, vec2text_model, args.batch_size, DEVICE)
 
     # Ensure the output directory exists.
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -98,5 +99,41 @@ def main():
     print(f"Decoded texts saved to: {output_path}")
 
 if __name__ == "__main__":
-    with torch.inference_mode():
-        main()
+
+    paths = [
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-12b/inferred_embeds_m2oejjrn_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-12b/linear_decoded_texts_v1.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-12b/inferred_embeds_wbjiyuhi_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-12b/linear_decoded_texts_v2.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-1b/inferred_embeds_w6biqqvb_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-1b/linear_decoded_texts_v1.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-270m/inferred_embeds_glj2ymro_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-270m/linear_decoded_texts_v1.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-27b/inferred_embeds_xpd1ew58_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-27b/linear_decoded_texts_v1.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-4b/inferred_embeds_j765hof7_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-4b/linear_decoded_texts_v1.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-4b/inferred_embeds_spyel44u_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-4b/linear_decoded_texts_v2.json"
+        ),
+    ]
+
+    for input_path, output_path in paths:
+        if os.path.exists(output_path):
+            print(f"Skipping {output_path} because it already exists")
+            continue
+        with torch.inference_mode():
+            main(input_path, output_path)

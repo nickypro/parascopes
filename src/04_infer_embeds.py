@@ -7,8 +7,8 @@ from utils_train import Trainer         # Assumption: Trainer class handles mode
 NUM_COPIES = 1
 #PREFIX = "sonar-sweeps"
 PREFIX  = "notebooks-sonar"
-POSTFIX = "_999"
-INDEX = 999
+POSTFIX = "_099"
+INDEX = 99
 
 
 def main():
@@ -23,28 +23,40 @@ def main():
     trainer.model.eval()
     DEVICE = trainer.device
     model_type = trainer.c.model_type
+    model_path = trainer.c.model_path
 
     # Load the full res_data 
     res_data, paragraphs, shapes = load_res_data(
         INDEX,
         groups_to_load=trainer.c.groups_to_load,
-        model_path="llama-3b",
+        group_size=trainer.c.group_size,
+        model_path=model_path,
         group_operation=trainer.c.group_operation,
         do_diff_data=trainer.c.do_diff_data,
     )
-    res_data = res_data.to(DEVICE)
+    res_data = res_data
 
     # Normalize the res_data (assuming trainer.normalizer_res supports batched data)
-    normalized_data = trainer.normalizer_res(res_data)
-
+    num_samples = res_data.shape[0]
     # Run inference through the model and restore normalization on the output embeds
     with torch.no_grad():
-        # For inference, we simply send the entire batch (NUM_COPIES replication is not needed here)
-        predicted = trainer.model(normalized_data)
-        predicted_embeds = trainer.normalizer_emb.restore(predicted)
+        # Process in batches of 1000 to avoid memory issues
+        batch_size = 1024
+        predicted_embeds_list = []
+        
+        for i in range(0, num_samples, batch_size):
+            batch_end = min(i + batch_size, num_samples)
+            batch_data = res_data[i:batch_end].to(DEVICE)
+            normalized_data = trainer.normalizer_res(batch_data)
+            
+            predicted_batch = trainer.model(normalized_data)
+            predicted_embeds_batch = trainer.normalizer_emb.restore(predicted_batch)
+            predicted_embeds_list.append(predicted_embeds_batch.cpu())
+        
+        predicted_embeds = torch.cat(predicted_embeds_list, dim=0)
 
     # Setup the output file path and check whether it exists.
-    output_dir = f"{BASE_DIR}/inferred_outputs"
+    output_dir = f"{BASE_DIR}/inferred_outputs/{model_path}"
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"inferred_embeds_{args.wandb_run_name}{POSTFIX}_{model_type}.pt")
     if os.path.exists(output_path):
