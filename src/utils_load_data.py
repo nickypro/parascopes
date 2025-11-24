@@ -112,16 +112,27 @@ def load_res_data_internal(
     # return for final processing
     return data, text_data, shapes
 
-def load_res_data(index, group_size=2, groups_to_load=0, group_operation="cat", do_diff_data=True, model_path=None):
+def load_res_data(
+        index,
+        group_size=2,
+        groups_to_load=0,
+        group_operation="cat",
+        do_diff_data=True,
+        model_path=None,
+        flatten=True,
+    ):
     """
     Load (flattened) residuals on one split.
     Returns a tuple of (
         residuals: tensor[samples (layersg gdim)],
         paragraphs: list[str],
+        shapes: list[int],
     ).
     """
     data, paragraphs, shapes = load_res_data_internal(index, group_size, group_operation, do_diff_data, model_path=model_path)
-    data = einops.rearrange(data[:, -groups_to_load:], 'samples layersg gdim -> samples (layersg gdim)')
+    data = data[:, -groups_to_load:]
+    if flatten:
+        data = einops.rearrange(data, 'samples layersg gdim -> samples (layersg gdim)')
     return data.float(), paragraphs, shapes
 
 def load_res_data_layer(index, layer_idx, group_size=2, group_operation="cat", do_diff_data=True, model_path=None):
