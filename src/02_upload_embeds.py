@@ -23,11 +23,26 @@ from tqdm import tqdm
 
 api = HfApi()
 files = [f for f in os.listdir(tensor_dir) if f.endswith('.pt')]
+files = list(sorted(files))
+SKIP_EXISTING = True
 
 print(f"Found {len(files)} tensor files to upload")
 
 for i, file in tqdm(enumerate(files)):
     # file = "res_data_002.pt"
+    if SKIP_EXISTING:
+        try:
+            # Check if file already exists in the repo
+            api.file_exists(
+                path_in_repo=file,
+                repo_id=repo,
+                repo_type="dataset"
+            )
+            print(f"⊘ Skipping {file}: already exists")
+            continue
+        except Exception:
+            # File doesn't exist, proceed with upload
+            pass
     try:
         api.upload_file(
             path_or_fileobj=os.path.join(tensor_dir, file),
