@@ -102,24 +102,12 @@ if __name__ == "__main__":
 
     paths = [
         (
-            "/workspace/hdd_cache/inferred_outputs/gemma-12b/inferred_embeds_m2oejjrn_099_linear.pt",
-            "/workspace/hdd_cache/comparison_texts/gemma-12b/linear_decoded_texts_v1.json"
-        ),
-        (
-            "/workspace/hdd_cache/inferred_outputs/gemma-12b/inferred_embeds_wbjiyuhi_099_linear.pt",
-            "/workspace/hdd_cache/comparison_texts/gemma-12b/linear_decoded_texts_v2.json"
-        ),
-        (
-            "/workspace/hdd_cache/inferred_outputs/gemma-1b/inferred_embeds_w6biqqvb_099_linear.pt",
-            "/workspace/hdd_cache/comparison_texts/gemma-1b/linear_decoded_texts_v1.json"
-        ),
-        (
             "/workspace/hdd_cache/inferred_outputs/gemma-270m/inferred_embeds_glj2ymro_099_linear.pt",
             "/workspace/hdd_cache/comparison_texts/gemma-270m/linear_decoded_texts_v1.json"
         ),
         (
-            "/workspace/hdd_cache/inferred_outputs/gemma-27b/inferred_embeds_xpd1ew58_099_linear.pt",
-            "/workspace/hdd_cache/comparison_texts/gemma-27b/linear_decoded_texts_v1.json"
+            "/workspace/hdd_cache/inferred_outputs/gemma-1b/inferred_embeds_w6biqqvb_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-1b/linear_decoded_texts_v1.json"
         ),
         (
             "/workspace/hdd_cache/inferred_outputs/gemma-4b/inferred_embeds_j765hof7_099_linear.pt",
@@ -128,6 +116,18 @@ if __name__ == "__main__":
         (
             "/workspace/hdd_cache/inferred_outputs/gemma-4b/inferred_embeds_spyel44u_099_linear.pt",
             "/workspace/hdd_cache/comparison_texts/gemma-4b/linear_decoded_texts_v2.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-12b/inferred_embeds_m2oejjrn_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-12b/linear_decoded_texts_v1.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-12b/inferred_embeds_wbjiyuhi_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-12b/linear_decoded_texts_v2.json"
+        ),
+        (
+            "/workspace/hdd_cache/inferred_outputs/gemma-27b/inferred_embeds_xpd1ew58_099_linear.pt",
+            "/workspace/hdd_cache/comparison_texts/gemma-27b/linear_decoded_texts_v1.json"
         ),
     ]
 
