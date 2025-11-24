@@ -1,7 +1,8 @@
+# utils_load_data.py
+
 """
 Utilities for loading embeddings, residuals, and outlines from HuggingFace or local storage.
 
-This module provides simple functions to load data from local paths or HuggingFace repositories.
 - If local_dir is provided, tries to load from there first
 - If hf_repo_id is provided, loads from HuggingFace
 - If both are provided, tries local first then falls back to HuggingFace
@@ -16,7 +17,6 @@ from typing import Optional, Union
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 
-
 import config
 
 
@@ -29,7 +29,6 @@ def _load_parquet_file(file_path: Path) -> pd.DataFrame:
 
 
 def _download_hf_torch(repo_id: str, filename: str):
-
     hf_token = os.environ.get("HF_TOKEN")
     fpath = hf_hub_download(
         repo_id=repo_id,
@@ -57,10 +56,12 @@ def load_embeds(
     hf_repo_id: Optional[str] = None,
     cast_dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
-
+    """
+    Load embeddings for a given chunk.
+    """
     filename = f"outlines_{chunk_id:03d}.pt"
     errors = []
-    
+
     # Try local first if provided
     if local_dir:
         try:
@@ -73,7 +74,7 @@ def load_embeds(
                 return embeds
         except Exception as e:
             errors.append(f"Local loading failed: {e}")
-    
+
     # Try HF if provided
     if hf_repo_id or not local_dir:
         if hf_repo_id is None:
@@ -86,7 +87,7 @@ def load_embeds(
             return embeds
         except Exception as e:
             errors.append(f"HuggingFace loading failed: {e}")
-    
+
     raise RuntimeError(f"Failed to load embeddings {filename}:\n" + "\n".join(errors))
 
 
@@ -95,10 +96,12 @@ def load_residuals(
     local_dir: Optional[str] = None,
     hf_repo_id: Optional[str] = None,
 ) -> Union[list, torch.Tensor]:
-
+    """
+    Load residual dumps for a given chunk.
+    """
     filename = f"res_data_{chunk_id:03d}.pt"
     errors = []
-    
+
     # Try local first if provided
     if local_dir:
         try:
@@ -109,7 +112,7 @@ def load_residuals(
                 return residuals
         except Exception as e:
             errors.append(f"Local loading failed: {e}")
-    
+
     # Try HF if provided
     if hf_repo_id or not local_dir:
         if hf_repo_id is not None:
@@ -119,7 +122,7 @@ def load_residuals(
                 return residuals
             except Exception as e:
                 errors.append(f"HuggingFace loading failed: {e}")
-    
+
     raise RuntimeError(f"Failed to load residuals {filename}:\n" + "\n".join(errors))
 
 
@@ -129,10 +132,12 @@ def load_outlines(
     hf_repo_id: Optional[str] = None,
     version: str = "v0.0",
 ) -> pd.DataFrame:
-
+    """
+    Load outlines metadata (parquet) for a given chunk.
+    """
     filename = f"outlines_{chunk_id:03d}.parquet"
     errors = []
-    
+
     # Try local first if provided
     if local_dir:
         try:
@@ -143,7 +148,7 @@ def load_outlines(
                 return df
         except Exception as e:
             errors.append(f"Local loading failed: {e}")
-    
+
     # Try HF if provided
     if hf_repo_id or not local_dir:
         if hf_repo_id is None:
@@ -156,5 +161,5 @@ def load_outlines(
             return df
         except Exception as e:
             errors.append(f"HuggingFace loading failed: {e}")
-    
+
     raise RuntimeError(f"Failed to load outlines {filename}:\n" + "\n".join(errors))

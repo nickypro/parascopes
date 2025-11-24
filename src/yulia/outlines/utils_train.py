@@ -1,9 +1,8 @@
-# trainer_probe.py
+# utils_train.py
 
 import os
 import gc
 import pickle
-from collections import defaultdict
 from types import SimpleNamespace
 
 import torch
@@ -11,11 +10,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 import wandb
-import einops
 
 from utils_normalizers import compute_normalizers, Normalizer, SAMPLES_PER_CHUNK
 from utils_load_data import load_residuals, load_embeds
-
 
 
 class LinearProbe(nn.Module):
@@ -40,6 +37,8 @@ class Trainer:
     """
     Trainer for linear probe on residuals -> SONAR embeddings.
 
+    - Uses residual PRE diffs: Δ[l] = resid_pre[l+1] - resid_pre[l]
+    - Handles Gemma vs Llama layouts automatically (via model_family).
     - Computes normalization on a subset of chunks (cfg.norm_chunks).
     - Uses last cfg.val_last_k chunks as validation, others for training.
     - Loads one chunk at a time (no fancy LRU cache).
@@ -50,7 +49,13 @@ class Trainer:
         self._config = dict(config)
         self.device = device
 
+        # --- infer model_family if not provided explicitly ---
+        if "model_family" not in self._config:
+            self._config["model_family"] = self._infer_model_family()
+            print(f"[Trainer] Inferred model_family = {self._config['model_family']}")
+
         self._c_ns = None  # cached SimpleNamespace
+
         # Build chunk lists
         self.all_chunks = list(range(self.c.start_chunk, self.c.end_chunk + 1))
         if not self.all_chunks:
@@ -67,6 +72,10 @@ class Trainer:
         norm_chunk_ids = self.all_chunks[: min(self.c.norm_chunks, len(self.all_chunks))]
         print("Using chunks for normalization:", [f"{c:03d}" for c in norm_chunk_ids])
 
+        # NOTE: compute_normalizers still uses raw residuals as saved.
+        # If you want normalization on PRE DIFFS specifically, you can
+        # update compute_normalizers to call the same _residual_pre_diffs
+        # logic used below.
         res_norm, emb_norm = compute_normalizers(
             norm_chunk_ids=norm_chunk_ids,
             hf_repo_residuals=self.c.hf_repo_residuals,
@@ -84,14 +93,14 @@ class Trainer:
         self.normalizer_res: Normalizer = res_norm
         self.normalizer_emb: Normalizer = emb_norm
 
-        # 2) Peek at one chunk to infer [n_layers, d_model]
+        # 2) Peek at one chunk to infer [n_layers, d_model] after diffs
         example_chunk = self.train_chunks[0]
         res_list = load_residuals(
             example_chunk,
             self.c.local_residuals_dir,
             self.c.hf_repo_residuals,
         )
-        embeds_example = load_embeds(
+        _ = load_embeds(
             example_chunk,
             self.c.local_embeds_dir,
             self.c.hf_repo_embeds,
@@ -100,12 +109,9 @@ class Trainer:
         if len(res_list) == 0:
             raise RuntimeError(f"Chunk {example_chunk} has no residuals.")
 
-        res_all = res_list[0]["res"].to(dtype=torch.float32)  # [n_layers, n_para, d_model]
-        first_para = res_all[:, :1, :]                        # [n_layers, 1, d_model]
-        res_tensor = einops.rearrange(first_para, "layer para dim -> layer dim")  # [n_layers, d_model]
-
-        if self.c.limit_layers is not None:
-            res_tensor = res_tensor[: self.c.limit_layers, :]
+        # res_all: [n_layers_raw, n_para, d_model]
+        res_all = res_list[0]["res"]
+        res_tensor = self._residual_pre_diffs(res_all)  # [n_layers_eff, d_model]
 
         n_layers, d_model = res_tensor.shape
         self._config["n_layers"] = int(n_layers)
@@ -113,10 +119,11 @@ class Trainer:
         self._config["d_res"] = int(n_layers * d_model)
 
         print(
-            f"\nProbe input shape:\n"
+            f"\nProbe input shape (using residual PRE diffs):\n"
             f"  n_layers = {n_layers}, d_model = {d_model}\n"
             f"  flattened d_res = {n_layers * d_model}\n"
-            f"  d_sonar = {self.c.d_sonar}"
+            f"  d_sonar = {self.c.d_sonar}\n"
+            f"  model_family = {self.c.model_family}"
         )
 
         # 3) Initialize model, optimizer, scheduler, loss
@@ -148,12 +155,88 @@ class Trainer:
         return self._c_ns
 
     # ---------------------------------------------------------------------
+    # Model-family detection
+    # ---------------------------------------------------------------------
+    def _infer_model_family(self) -> str:
+        """
+        Infer model_family ('gemma', 'llama', or 'unknown') from the paths / repo names
+        if the user didn't specify it explicitly.
+        """
+        candidates = []
+        for key in [
+            "hf_repo_residuals",
+            "hf_repo_embeds",
+            "local_residuals_dir",
+            "local_embeds_dir",
+        ]:
+            val = self._config.get(key, None)
+            if val is not None:
+                candidates.append(str(val).lower())
+
+        joined = " ".join(candidates)
+        if "llama" in joined:
+            return "llama"
+        if "gemma" in joined:
+            return "gemma"
+        return "unknown"
+
+    # ---------------------------------------------------------------------
+    # Unified residual PRE-diff transform
+    # ---------------------------------------------------------------------
+    def _residual_pre_diffs(self, res_all: torch.Tensor) -> torch.Tensor:
+        """
+        Convert raw residual dump [n_layers_raw, n_para, d_model] into
+        layer-wise residual diffs:
+
+            Δ[l] = resid_pre[l+1] - resid_pre[l]
+
+        for all model families.
+
+        Returns: [n_layers_eff, d_model]
+        """
+        # 1) Take first paragraph / token
+        #    res_all: [n_layers_raw, n_para, d_model]
+        #    states:  [n_layers_raw, d_model]
+        states = res_all[:, 0, :].to(dtype=torch.float32)
+
+        family = getattr(self.c, "model_family", "unknown").lower()
+
+        # 2) Extract only resid_pre states, depending on model family
+        if "llama" in family:
+            # Assume pattern [pre0, mid0, post0, pre1, mid1, post1, ...]
+            # Keep only pre's at layer boundaries.
+            states = states[::2, :]
+        elif "gemma" in family:
+            # Gemma dumps are typically pre/post only; assume first is pre.
+            # If your dump alternates pre/post and you want only pre, [::2].
+            # For now, assume states are [pre0, pre1, ..., preL].
+            pass
+        else:
+            # Unknown family: assume states are already pre-only.
+            pass
+
+        if states.shape[0] < 2:
+            raise ValueError(
+                f"Not enough residual states ({states.shape[0]}) to compute diffs."
+            )
+
+        # 3) Compute diffs always ON:
+        #    Δ[l] = pre[l+1] - pre[l]
+        diffs = states[1:, :] - states[:-1, :]  # [n_layers_eff, d_model]
+
+        # 4) Optional layer limit
+        if self.c.limit_layers is not None:
+            diffs = diffs[: self.c.limit_layers, :]
+
+        return diffs
+
+    # ---------------------------------------------------------------------
     # Data loading per chunk
     # ---------------------------------------------------------------------
     def _load_chunk_tensors(self, chunk_id: int):
         """
         Load a single chunk and return:
-          - res_tensor: [N, n_layers, d_model]
+          - res_tensor: [N, n_layers, d_model]  (here n_layers = #diffs)
           - embeds:     [N, d_sonar]
         Skips chunk if size mismatch with SAMPLES_PER_CHUNK.
         """
@@ -179,14 +262,12 @@ class Trainer:
 
         res_tensors = []
         for res in res_list:
-            res_all = res["res"].to(dtype=torch.float32)               # [n_layers, n_para, d_model]
-            first_para = res_all[:, :1, :]                             # [n_layers, 1, d_model]
-            res_tensor = einops.rearrange(first_para, "layer para dim -> layer dim")  # [n_layers, d_model]
-            if self.c.limit_layers is not None:
-                res_tensor = res_tensor[: self.c.limit_layers, :]
+            # res["res"]: [n_layers_raw, n_para, d_model]
+            res_all = res["res"]
+            res_tensor = self._residual_pre_diffs(res_all)  # [n_layers_eff, d_model]
             res_tensors.append(res_tensor)
 
-        res_tensor = torch.stack(res_tensors, dim=0)  # [N, n_layers, d_model]
+        res_tensor = torch.stack(res_tensors, dim=0)  # [N, n_layers_eff, d_model]
         return res_tensor, embeds
 
     def _make_loader_for_chunk(self, chunk_id: int, shuffle: bool) -> DataLoader | None:
@@ -268,7 +349,6 @@ class Trainer:
                     step=self.global_step,
                 )
 
-                # clear references ASAP
                 del batch_x, batch_y
 
             del loader

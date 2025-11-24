@@ -1,4 +1,3 @@
-# probe_config.py
 
 from pathlib import Path
 
@@ -11,10 +10,6 @@ PROBE_CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_probe_train_config() -> dict:
-    """
-    All training hyperparameters for the linear probe live here.
-    No HF/local paths in this file; those come from config.py.
-    """
     return {
         # --- model / training hyperparams ---
         "model_type": "linear_probe",
