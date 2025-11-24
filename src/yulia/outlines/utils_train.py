@@ -72,10 +72,7 @@ class Trainer:
         norm_chunk_ids = self.all_chunks[: min(self.c.norm_chunks, len(self.all_chunks))]
         print("Using chunks for normalization:", [f"{c:03d}" for c in norm_chunk_ids])
 
-        # NOTE: compute_normalizers still uses raw residuals as saved.
-        # If you want normalization on PRE DIFFS specifically, you can
-        # update compute_normalizers to call the same _residual_pre_diffs
-        # logic used below.
+        # Pass _residual_pre_diffs so normalizer uses the same preprocessing as training
         res_norm, emb_norm = compute_normalizers(
             norm_chunk_ids=norm_chunk_ids,
             hf_repo_residuals=self.c.hf_repo_residuals,
@@ -83,6 +80,7 @@ class Trainer:
             local_residuals_dir=self.c.local_residuals_dir,
             local_embeds_dir=self.c.local_embeds_dir,
             dtype=torch.float32,
+            residual_preprocessor=self._residual_pre_diffs,
         )
 
         res_norm.mean = res_norm.mean.to(device)

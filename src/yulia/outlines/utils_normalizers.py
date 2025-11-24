@@ -55,6 +55,7 @@ def compute_normalizers(
     local_residuals_dir: Optional[str],
     local_embeds_dir: Optional[str],
     dtype: torch.dtype = torch.float32,
+    residual_preprocessor: Optional[callable] = None,
 ) -> Tuple[Normalizer, Normalizer]:
     """
     Compute mean/std using Welford over a small subset of chunks.
@@ -72,10 +73,10 @@ def compute_normalizers(
     for chunk_id in tqdm(norm_chunk_ids, desc="Stats chunks"):
         try:
             res_list = load_residuals(
-                chunk_id, hf_repo_residuals, local_residuals_dir
+                chunk_id, local_residuals_dir, hf_repo_residuals
             )
             embeds = load_embeds(
-                chunk_id, hf_repo_embeds,local_embeds_dir
+                chunk_id, local_embeds_dir, hf_repo_embeds
             )
 
             n_res = len(res_list)
@@ -87,8 +88,15 @@ def compute_normalizers(
 
             for res, embed in zip(res_list, embeds):
                 res_all = res["res"].to(dtype=dtype)                  # [n_layers, n_para, d_model]
-                first_para = res_all[:, :1, :]                        # first paragraph only
-                res_tensor = einops.rearrange(first_para, res_reshape)  # [1, n_layers, d_model]
+                
+                if residual_preprocessor is not None:
+                    # Use custom preprocessor (e.g., for layer diffs)
+                    res_tensor = residual_preprocessor(res_all)       # [n_layers_eff, d_model]
+                    res_tensor = res_tensor.unsqueeze(0)              # [1, n_layers_eff, d_model]
+                else:
+                    # Default: just take first paragraph and rearrange
+                    first_para = res_all[:, :1, :]                    # first paragraph only
+                    res_tensor = einops.rearrange(first_para, res_reshape)  # [1, n_layers, d_model]
 
                 res_stats.update(res_tensor)
                 embed_stats.update(embed.unsqueeze(0))  # embed_stats.mean and embed_stats.std have shape [d_sonar]
