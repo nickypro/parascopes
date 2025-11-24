@@ -181,7 +181,7 @@ class Trainer:
         return "unknown"
 
     # ---------------------------------------------------------------------
-    # Unified residual PRE-diff transform
+    # residual PRE-diff transform
     # ---------------------------------------------------------------------
     def _residual_pre_diffs(self, res_all: torch.Tensor) -> torch.Tensor:
         """
@@ -203,16 +203,14 @@ class Trainer:
 
         # 2) Extract only resid_pre states, depending on model family
         if "llama" in family:
-            # Assume pattern [pre0, mid0, post0, pre1, mid1, post1, ...]
+            # Pattern is [pre0, mid0, post0, pre1, mid1, post1, ...]
             # Keep only pre's at layer boundaries.
             states = states[::2, :]
         elif "gemma" in family:
-            # Gemma dumps are typically pre/post only; assume first is pre.
-            # If your dump alternates pre/post and you want only pre, [::2].
-            # For now, assume states are [pre0, pre1, ..., preL].
+            # Gemma resids are pre/post only; assume first is pre.
+            # Assume states are [pre0, pre1, ..., preL].
             pass
         else:
-            # Unknown family: assume states are already pre-only.
             pass
 
         if states.shape[0] < 2:
@@ -220,7 +218,7 @@ class Trainer:
                 f"Not enough residual states ({states.shape[0]}) to compute diffs."
             )
 
-        # 3) Compute diffs always ON:
+        # 3) Compute diffs always TRUE:
         #    Δ[l] = pre[l+1] - pre[l]
         diffs = states[1:, :] - states[:-1, :]  # [n_layers_eff, d_model]
 
