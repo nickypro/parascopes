@@ -13,11 +13,19 @@ MAX_TOKENS = 2048
 
 # %%
 # model = "llama-3b"
-model = "gemma-4b"
+model = "gemma-1b"
 
 if model == "llama-3b":
     dataset = load_dataset("annnettte/fineweb-llama3b-texts-split")["train"]
     m = HookedTransformer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct", dtype=torch.bfloat16)
+
+elif model == "gemma-270m":
+    dataset = load_dataset("nickypro/fineweb-gemma270m-texts-split")["train"]
+    m = Model.from_pretrained("google/gemma-3-270m-it", dtype="bf16")
+
+elif model == "gemma-1b":
+    dataset = load_dataset("nickypro/fineweb-gemma1b-texts-split")["train"]
+    m = Model.from_pretrained("google/gemma-3-1b-it", dtype="bf16")
 
 elif model == "gemma-4b":
     dataset = load_dataset("annnettte/fineweb-gemma4b-texts-split")["train"]
@@ -141,15 +149,14 @@ for name in existing_files:
 batch = []
 for i, data in enumerate(tqdm(dataset)):
     batch_index = i // 1000
+    if i > 0 and i % 1000 == 0 and len(batch) > 0:
+        torch.save(batch, f"./tensors/{model}/res_data_{batch_index - 1:03d}.pt")
+        existing_batch_indices.add(batch_index - 1)
+        batch = []
     
     # Skip if this batch already exists
     if batch_index in existing_batch_indices:
         continue
-    
-    if i > 0 and i % 1000 == 0:
-        torch.save(batch, f"./tensors/{model}/res_data_{batch_index - 1:03d}.pt")
-        existing_batch_indices.add(batch_index - 1)
-        batch = []
 
     act_data = get_act_data(data["split_text"], verbose=False)
 

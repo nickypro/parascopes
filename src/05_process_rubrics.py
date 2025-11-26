@@ -2,8 +2,9 @@ import json
 import os
 from collections import defaultdict
 
-INPUT_DIR = "./hdd_cache/rubric_scores/llama-3b"
-OUTPUT_DIR = "./hdd_cache/processed_rubrics/llama-3b"
+INPUT_DIR = "./rubric_scores"
+OUTPUT_DIR = "./hdd_cache/processed_rubrics"
+OUTPUT_FILE = f"{OUTPUT_DIR}/all_data_gemma.json"
 
 compare_files = {
     "TAE cat": f"{INPUT_DIR}/TAE-cat.json",
@@ -12,6 +13,16 @@ compare_files = {
     "TAE attn": f"{INPUT_DIR}/TAE-attn.json",
     "TAE mlp": f"{INPUT_DIR}/TAE-mlp.json",
     "auto-decoded": f"{INPUT_DIR}/auto-decoded.json",
+}
+
+compare_files = {
+    "gemma 12b v1": f"{INPUT_DIR}/gemma 12b v1.json",
+    "gemma 1b v1": f"{INPUT_DIR}/gemma 1b v1.json",
+    "gemma 27b v1": f"{INPUT_DIR}/gemma 27b v1.json",
+    "gemma 4b v2": f"{INPUT_DIR}/gemma 4b v2.json",
+    "gemma 12b v2": f"{INPUT_DIR}/gemma 12b v2.json",
+    "gemma 270m v1": f"{INPUT_DIR}/gemma 270m v1.json",
+    "gemma 4b v1": f"{INPUT_DIR}/gemma 4b v1.json",
 }
 
 metrics = [
@@ -66,7 +77,7 @@ print(json.dumps(all_data[0], indent=4))
 num_valid = sum(1 for v in all_data.values() if v['all_valid'])
 print(f"# {len(all_data)} valid entries, of which {num_valid} are valid")
 
-output_file = f"{OUTPUT_DIR}/all_data.json"
+output_file = OUTPUT_FILE
 print(f"# writing to {output_file}")
 with open(output_file, "w") as f:
     json.dump(all_data, f)

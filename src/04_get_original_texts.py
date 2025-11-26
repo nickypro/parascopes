@@ -3,11 +3,10 @@ import json  # for saving output as JSON
 import torch
 from utils_load_data import load_res_data, load_embeds, BASE_DIR
 
-def main():
-    model_path = "llama-3b"
+def main(model_path, insert_index=99):
     os.makedirs(f"{BASE_DIR}/comparison_texts/{model_path}", exist_ok=True)
 
-    res, paragraphs, shapes = load_res_data(999, model_path=model_path)
+    res, paragraphs, shapes = load_res_data(insert_index, model_path=model_path)
     # embeds = load_embeds(999, shapes, model_path=model_path).to(device, torch.float16)
     output_path = f"{BASE_DIR}/comparison_texts/{model_path}/original_texts.json"
 
@@ -28,4 +27,5 @@ def main():
     print(f"Original texts saved to: {output_path}")
 
 if __name__ == "__main__":
-    main()
+    for model_path in ["gemma-270m", "gemma-1b", "gemma-4b", "gemma-12b", "gemma-27b"]: # ["llama-3b", "llama-7b", "llama-13b", "llama-34b"]:
+        main(model_path, 99)

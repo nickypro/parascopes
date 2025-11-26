@@ -18,10 +18,11 @@ def train_linear():
         config = {
             'model_type': 'linear',
             'batch_size': 1024,
-            'num_epochs': 1,
-            'num_files': 999,
-            'group_size': 2,
-            'groups_to_load': 14,
+            'num_epochs': 10,
+            'num_files': 99,
+            'group_size': 1,
+            'groups_to_load': 62,
+            "model_path": "gemma-27b",
             'lr': 2e-5,
             'lr_decay': 0.8,
             'weight_decay': 2e-5,
@@ -30,7 +31,7 @@ def train_linear():
             'd_sonar': 1024,
             # 'd_res': 61440,
             "do_diff_data": True,
-            "group_operation": "sum",
+            "group_operation": "cat",
         }
         wandb.config.update(config)
 

@@ -60,7 +60,12 @@ def get_examples(data_dict, model_name, metric, shuffle=True, limit=10):
     for index, entry in data_dict.items():
         if model_name in entry["scores"]:
             score = entry["scores"][model_name][metric]
-            examples[score].append({"index": index, "scores": entry["scores"][model_name]})
+            try:
+                assert isinstance(int(score), int)
+                examples[score].append({"index": index, "scores": entry["scores"][model_name]})
+            except:
+                print("huh weird thing for", index, metric, score)
+                continue
     
     if shuffle:
         for score in examples:
@@ -69,7 +74,7 @@ def get_examples(data_dict, model_name, metric, shuffle=True, limit=10):
     if limit is not None:
         for score in examples:
             examples[score] = examples[score][:limit]
-    
+
     return examples
 
 
@@ -212,8 +217,10 @@ def print_mean_scores(data_dict, metrics, model_names, sorted=True):
                 if model_name in entry["scores"]:
                     score = entry["scores"][model_name][metric]
                     # Filter out None values
-                    if score is None or score < 0:
+                    if score is None or not isinstance(score, int):
                         continue
+                    # if score < 0:
+                    #     continue
                     scores.append(score)
             mean_score = np.mean(scores) if scores else float('nan')
             total_score += mean_score
@@ -231,19 +238,27 @@ if __name__ == "__main__":
 
     # Load the processed rubric data (only valid entries)
     data_dict = load_rubric_results(
-        file_path="./hdd_cache/processed_rubrics/llama-3b/all_data.json"
+        # file_path="./hdd_cache/processed_rubrics/llama-3b/all_data.json"
+        file_path="./hdd_cache/processed_rubrics/all_data_gemma.json"
     )
 
     print(f"Loaded {len(data_dict)} valid entries")
 
     # Define the model names to compare
     model_names = [
-        "TAE cat",
-        "TAE sum",
-        "TAE no diff",
-        "TAE attn",
-        "TAE mlp",
-        "auto-decoded",
+        # "TAE cat",
+        # "TAE sum",
+        # "TAE no diff",
+        # "TAE attn",
+        # "TAE mlp",
+        # "auto-decoded",
+        "gemma 270m v1",
+        "gemma 1b v1",
+        # "gemma 4b v1",
+        "gemma 4b v2",
+        # "gemma 12b v1",
+        "gemma 12b v2",
+        "gemma 27b v1",
     ]
 
     # Define color map
@@ -260,10 +275,17 @@ if __name__ == "__main__":
         "TAE attn": base + b,
         "TAE mlp": base + b,
         "auto-decoded": base + g,
+        "gemma 270m v1": base + r,
+        "gemma 1b v1": base + r,
+        "gemma 4b v1": base + r,
+        "gemma 4b v2": base + r,
+        "gemma 12b v1": base + r,
+        "gemma 12b v2": base + r,
+        "gemma 27b v1": base + r,
     }
 
     # Plot selected metrics
-    metrics = ["coherence", "subject", "entities", "details"]
+    metrics = ["coherence", "subject", "entities", "details", "complexity"]
 
     for metric in metrics:
         plot_score_proportions_interactive(data_dict, metric, model_names, colour_map)

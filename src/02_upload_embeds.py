@@ -4,8 +4,8 @@ import os
 
 # Initialize the API
 api = HfApi()
-repo = "nickypro/fineweb-gemma4b-residuals"
-tensor_dir = "./tensors/gemma-4b"
+repo = "nickypro/fineweb-gemma27b-embeds"
+tensor_dir = "./sonar_embeds/gemma-27b"
 
 # Create a repository (do this once)
 try:
@@ -25,6 +25,7 @@ api = HfApi()
 files = [f for f in os.listdir(tensor_dir) if f.endswith('.pt')]
 files = list(sorted(files))
 SKIP_EXISTING = True
+
 print(f"Found {len(files)} tensor files to upload")
 
 for i, file in tqdm(enumerate(files)):
@@ -42,7 +43,6 @@ for i, file in tqdm(enumerate(files)):
         except Exception:
             # File doesn't exist, proceed with upload
             pass
-
     try:
         api.upload_file(
             path_or_fileobj=os.path.join(tensor_dir, file),
@@ -52,4 +52,3 @@ for i, file in tqdm(enumerate(files)):
         )
     except Exception as e:
         print(f"✗ Failed {file}: {e}")
-    break

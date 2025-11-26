@@ -7,6 +7,7 @@ from tqdm import tqdm
 from typing import List, Dict, Tuple
 from openai import OpenAI
 from utils_parallel import exponential_backoff, process_in_parallel
+from utils_load_data import BASE_DIR
 
 
 rubric = """
@@ -222,6 +223,7 @@ def get_rubric_comparison_data(ref_file, compare_files):
         all_rubric_scores.extend(rubric_scores)
         all_labels.extend([label] * len(rubric_scores))
 
+        os.makedirs("rubric_scores", exist_ok=True)
         with open(f"rubric_scores/{label}.json", "w") as f:
             json.dump(rubric_scores, f)
 
@@ -233,7 +235,8 @@ def get_rubric_comparison_data(ref_file, compare_files):
 
     return df_plot
 
-if __name__ == "__main__":
+if __name__ == "__main__" and False:
+    pass
 
     cossim_plot_path = "cossim-plot.png"
     BASE_DIR = "./hdd_cache/"
@@ -264,3 +267,32 @@ if __name__ == "__main__":
     df_plot = get_rubric_comparison_data(ref_file, compare_files)
     # plot_rubric_comparison(df_plot, cossim_plot_path)
 
+if __name__ == "__main__":
+    # Run all the Gemma models against their own references
+    base = f"{BASE_DIR}/comparison_texts"
+    gemma_dirs = {
+        "gemma 270m": f"{base}/gemma-270m",
+        "gemma 1b": f"{base}/gemma-1b",
+        "gemma 4b": f"{base}/gemma-4b",
+        "gemma 12b": f"{base}/gemma-12b",
+        "gemma 27b": f"{base}/gemma-27b",
+    }
+
+    candidates = {
+        "gemma 270m": [("v1", "linear_decoded_texts_v1.json")],
+        "gemma 1b":   [("v1", "linear_decoded_texts_v1.json")],
+        "gemma 4b":   [("v1", "linear_decoded_texts_v1.json"),
+                       ("v2", "linear_decoded_texts_v2.json")],
+        "gemma 12b":  [("v1", "linear_decoded_texts_v1.json"),
+                       ("v2", "linear_decoded_texts_v2.json")],
+        "gemma 27b":  [("v1", "linear_decoded_texts_v1.json")],
+    }
+
+    for model_label, model_dir in gemma_dirs.items():
+        ref_file = f"{model_dir}/original_texts.json"
+        compare_files = {}
+        for version_label, fname in candidates[model_label]:
+            label = f"{model_label} {version_label}"
+            compare_files[label] = f"{model_dir}/{fname}"
+        print(f"\n=== Running rubric comparison for {model_label} ===")
+        get_rubric_comparison_data(ref_file, compare_files)

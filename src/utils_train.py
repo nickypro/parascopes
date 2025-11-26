@@ -16,15 +16,29 @@ from collections import defaultdict
 class Trainer:
     def __init__(self, config, device):
         self._config = config
+        self._validate_config()
         self.device = device
 
         self._config["group_operation"] = "cat" if "group_operation" not in self._config else self._config["group_operation"]
-        welford_data = load_or_compute_welford_stats(self.c.groups_to_load, self.c.group_size, self.c.group_operation, self.c.do_diff_data)
+        welford_data = load_or_compute_welford_stats(
+            groups_to_load=self.c.groups_to_load,
+            group_size=self.c.group_size,
+            group_operation=self.c.group_operation,
+            do_diff_data=self.c.do_diff_data,
+            model_path=self.c.model_path,
+        )
         self.normalizer_emb: Normalizer = welford_data.norm_emb
         self.normalizer_res: Normalizer = welford_data.norm_res
 
         # d_res = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation).shape[-1]
-        res_data, text_data, shapes = load_res_data(0, self.c.group_size, self.c.groups_to_load, self.c.group_operation)
+        res_data, text_data, shapes = load_res_data(
+            0,
+            group_size=self.c.group_size,
+            groups_to_load=self.c.groups_to_load,
+            group_operation=self.c.group_operation,
+            do_diff_data=self.c.do_diff_data,
+            model_path=self.c.model_path,
+        )
         d_res = res_data.shape[-1]
         self._config["d_res"] = d_res
 
@@ -50,6 +64,22 @@ class Trainer:
             self.decoder_loss = SonarDecoderCELoss(max_tokens=self.decoder_max_tokens)
             self.decoder_loss.model.eval()
 
+    def _validate_config(self):
+        assert "model_path" in self._config, "model_path is required"
+        assert self._config["model_path"] is not None, "model_path is required"
+        assert "groups_to_load" in self._config, "groups_to_load is required"
+        assert self._config["groups_to_load"] is not None, "groups_to_load is required"
+        assert "group_size" in self._config, "group_size is required"
+        assert self._config["group_size"] is not None, "group_size is required"
+        assert "group_operation" in self._config, "group_operation is required"
+        assert self._config["group_operation"] is not None, "group_operation is required"
+        assert "do_diff_data" in self._config, "do_diff_data is required"
+        assert self._config["do_diff_data"] is not None, "do_diff_data is required"
+        assert "model_path" in self._config, "model_path is required"
+        verbose = False
+        if verbose:
+            print(f"{self._config=}")
+
     @property
     def c(self):
         return SimpleNamespace(**self._config)
@@ -68,12 +98,13 @@ class Trainer:
     def create_data_loader(self, file_idx, shuffle=False):
         res_data, text_data, shapes = load_res_data(
             file_idx, 
+            group_size=self.c.group_size,
             groups_to_load=self.c.groups_to_load, 
             group_operation=self.c.group_operation,
             do_diff_data=self.c.do_diff_data,
-            model_path="llama-3b",
+            model_path=self.c.model_path,
         )
-        embeds = load_embeds(file_idx, shapes, model_path="llama-3b")
+        embeds = load_embeds(file_idx, shapes, model_path=self.c.model_path)
         paragraphs = []
         for idx, (p, shape) in enumerate(zip(text_data, shapes)):
             curr_paras = p[1:1+shape]
