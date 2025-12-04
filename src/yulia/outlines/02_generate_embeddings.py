@@ -1,5 +1,4 @@
 """Generate embeddings for outlines in chunks of 1000."""
-import os
 import torch
 from pathlib import Path
 from tqdm import tqdm
@@ -8,12 +7,11 @@ from huggingface_hub import HfApi
 from sonar.inference_pipelines.text import TextToEmbeddingModelPipeline
 
 # Config
-SOURCE_REPO_ID = "yulia-volkova/parascopes-outlines-gemma4b"  # Gemma outlines
-HF_REPO_ID = "yulia-volkova/gemma4b-outlines-embeddings"          # Gemma embeddings
+SOURCE_REPO_ID = "yulia-volkova/parascopes-outlines-gemma12b"  
+HF_REPO_ID = "yulia-volkova/gemma12b-outlines-embeddings"         
 RESULTS_DIR = Path(__file__).parent / "results"
 
 def upload_to_hf(local_dir: Path):
-    """Upload all generated embeddings to HuggingFace."""
     print("\nUploading embeddings to HuggingFace...")
     api = HfApi()
     api.create_repo(repo_id=HF_REPO_ID, repo_type="dataset", exist_ok=True)
@@ -32,7 +30,6 @@ def upload_to_hf(local_dir: Path):
         print(f"Uploaded {local_file.name}")
 
 def main(source_chunk_id: int, max_chunks: int = None):
-    # Initialize SONAR
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     text2vec = TextToEmbeddingModelPipeline(
         encoder="text_sonar_basic_encoder",
@@ -45,7 +42,7 @@ def main(source_chunk_id: int, max_chunks: int = None):
     print(f"\nLoading source chunk {source_chunk_id:03d}...")
     
     # Try local backup first
-    local_data_path = Path(__file__).parent / "results" / "fineweb-gemma4b" / "v0.0" / f"outlines_{source_chunk_id:03d}.parquet"
+    local_data_path = Path(__file__).parent / "results" / "fineweb-gemma12b" / "v0.0" / f"outlines_{source_chunk_id:03d}.parquet"
     if local_data_path.exists():
         print(f"Loading from local backup: {local_data_path}")
         import pandas as pd
@@ -66,7 +63,7 @@ def main(source_chunk_id: int, max_chunks: int = None):
     print(f"\nGenerating {n_chunks} embedding chunks of {chunk_size:,} samples each")
     
     # Create output directory
-    local_dir = RESULTS_DIR / "gemma4b-outlines-embeddings"
+    local_dir = RESULTS_DIR / "gemma12b-outlines-embeddings"
     local_dir.mkdir(parents=True, exist_ok=True)
     
     # Process chunks
@@ -126,10 +123,8 @@ if __name__ == "__main__":
     parser.add_argument("--upload", action="store_true", help="Upload generated embeddings to HuggingFace")
     args = parser.parse_args()
     
-    # Generate embeddings
     main(args.chunk, args.max_chunks)
     
-    # Upload if requested
     if args.upload:
-        local_dir = RESULTS_DIR / "gemma4b-outlines-embeddings"
+        local_dir = RESULTS_DIR / "gemma12b-outlines-embeddings"
         upload_to_hf(local_dir)

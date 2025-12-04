@@ -13,7 +13,7 @@ from huggingface_hub import HfApi
 from yulia.outlines.io_utils import extract_outline_for_model
 from yulia.outlines.config import (
     MODELS, HF_DATASET, HF_SPLIT,
-    HF_REPO_ID, HF_PRIVATE, VERSION
+    HF_OUTLINES_REPO, HF_PRIVATE, VERSION
 )
 from yulia.outlines.hf_utils import get_standard_features
 
@@ -213,7 +213,7 @@ def main(
             if len(results_buffer) >= CHUNK_SIZE:
                 print(f"\nUploading chunk with {len(results_buffer)} samples...")
                 df = pd.DataFrame(results_buffer).reset_index(drop=True)
-                upload_to_hub(df, HF_REPO_ID, version)
+                upload_to_hub(df, HF_OUTLINES_REPO, version)
                 results_buffer = []  # Reset buffer
                 print(f"Total processed so far: {total_processed}")
             else:
@@ -236,7 +236,7 @@ def main(
     if results_buffer:
         print(f"\nUploading final batch of {len(results_buffer)} samples...")
         df = pd.DataFrame(results_buffer).reset_index(drop=True)
-        upload_to_hub(df, HF_REPO_ID, version)
+        upload_to_hub(df, HF_OUTLINES_REPO, version)
     
     print("\nProcessing complete!")
     print(f"- Total samples processed: {total_processed}")

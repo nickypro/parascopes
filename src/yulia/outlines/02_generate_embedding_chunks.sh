@@ -8,9 +8,9 @@ cd "$BASE_DIR"
 export PYTHONPATH=$PYTHONPATH:$BASE_DIR
 
 # Loop through chunks 2 to 9
-for chunk in {8..9}; do
+for chunk in {0..3}; do
     echo "Processing chunk $chunk..."
-    python yulia/outlines/generate_embeddings.py $chunk
+    python yulia/outlines/02_generate_embeddings.py $chunk
     
     # Check if the command was successful
     if [ $? -ne 0 ]; then
