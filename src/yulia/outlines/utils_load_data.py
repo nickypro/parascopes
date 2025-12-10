@@ -1,12 +1,5 @@
-# utils_load_data.py
-
 """
 Utilities for loading embeddings, residuals, and outlines from HuggingFace or local storage.
-
-- If local_dir is provided, tries to load from there first
-- If hf_repo_id is provided, loads from HuggingFace
-- If both are provided, tries local first then falls back to HuggingFace
-- HF_TOKEN is always read from environment variable
 """
 
 import os
@@ -17,7 +10,16 @@ from typing import Optional, Union
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 
-import config
+# Import from both config files since this is a shared utility
+try:
+    from config import HF_OUTLINES_REPO
+except ImportError:
+    from yulia.outlines.config import HF_OUTLINES_REPO
+
+try:
+    from config_probe import HF_EMBEDDINGS_REPO
+except ImportError:
+    from yulia.outlines.config_probe import HF_EMBEDDINGS_REPO
 
 
 def _load_torch_file(file_path: Path):
@@ -78,7 +80,7 @@ def load_embeds(
     # Try HF if provided
     if hf_repo_id or not local_dir:
         if hf_repo_id is None:
-            hf_repo_id = config.HF_EMBEDDINGS_REPO
+            hf_repo_id = HF_EMBEDDINGS_REPO
         try:
             embeds = _download_hf_torch(hf_repo_id, filename)
             if cast_dtype is not None:
@@ -110,6 +112,8 @@ def load_residuals(
                 residuals = _load_torch_file(local_path)
                 print(f"Loaded residuals from: {local_path}")
                 return residuals
+            else:
+                errors.append(f"Local file not found: {local_path}")
         except Exception as e:
             errors.append(f"Local loading failed: {e}")
 
@@ -152,8 +156,9 @@ def load_outlines(
     # Try HF if provided
     if hf_repo_id or not local_dir:
         if hf_repo_id is None:
-            hf_repo_id = config.HF_OUTLINES_REPO
-        # For HF, typically stored in versioned subdirectory
+            hf_repo_id = HF_OUTLINES_REPO
+        # For HF, typically stored in versioned subdirectory, 
+        # version is always v0.0 though
         hf_path = f"{version}/data/{filename}"
         try:
             df = _download_hf_parquet(hf_repo_id, hf_path)

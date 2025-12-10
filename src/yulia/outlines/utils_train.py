@@ -3,6 +3,7 @@
 import os
 import gc
 import pickle
+import random
 from types import SimpleNamespace
 
 import torch
@@ -41,6 +42,8 @@ class Trainer:
     - Handles Gemma vs Llama layouts automatically (via model_family).
     - Computes normalization on a subset of chunks (cfg.norm_chunks).
     - Uses last cfg.val_last_k chunks as validation, others for training.
+    - Optionally samples a subset of train chunks per epoch (chunks_per_epoch).
+    - Supports intermediate validation every N trained chunks (val_every_chunks).
     - Loads one chunk at a time (no fancy LRU cache).
     - Logs to wandb (assumes wandb.init(...) already called).
     """
@@ -49,12 +52,13 @@ class Trainer:
         self._config = dict(config)
         self.device = device
 
-        # --- infer model_family if not provided explicitly ---
+        # infer model_family if not provided explicitly 
         if "model_family" not in self._config:
             self._config["model_family"] = self._infer_model_family()
             print(f"[Trainer] Inferred model_family = {self._config['model_family']}")
 
         self._c_ns = None  # cached SimpleNamespace
+        self._last_epoch_chunks = None  # store last epoch's chunk IDs
 
         # Build chunk lists
         self.all_chunks = list(range(self.c.start_chunk, self.c.end_chunk + 1))
@@ -68,7 +72,21 @@ class Trainer:
         if not self.train_chunks:
             raise ValueError("No training chunks left after reserving validation chunks.")
 
-        # 1) Compute normalizers on subset of chunks
+        print(f"\n[Trainer] Chunk allocation:")
+        print(f"  All chunks: {self.all_chunks}")
+        print(f"  Train chunks: {len(self.train_chunks)} total")
+        print(f"  Val chunks: {len(self.val_chunks)} total")
+
+        chunks_per_epoch = getattr(self.c, "chunks_per_epoch", None)
+        if chunks_per_epoch and chunks_per_epoch < len(self.train_chunks):
+            print(f"  Chunks per epoch: {chunks_per_epoch} (randomly sampled each epoch)")
+            estimated_coverage = min(
+                100,
+                (chunks_per_epoch * self.c.num_epochs / len(self.train_chunks)) * 100,
+            )
+            print(f"  Estimated coverage over {self.c.num_epochs} epochs: ~{estimated_coverage:.0f}%")
+
+        # compute normalizers on subset of chunks
         norm_chunk_ids = self.all_chunks[: min(self.c.norm_chunks, len(self.all_chunks))]
         print("Using chunks for normalization:", [f"{c:03d}" for c in norm_chunk_ids])
 
@@ -91,21 +109,41 @@ class Trainer:
         self.normalizer_res: Normalizer = res_norm
         self.normalizer_emb: Normalizer = emb_norm
 
-        # 2) Peek at one chunk to infer [n_layers, d_model] after diffs
-        example_chunk = self.train_chunks[0]
-        res_list = load_residuals(
-            example_chunk,
-            self.c.local_residuals_dir,
-            self.c.hf_repo_residuals,
-        )
-        _ = load_embeds(
-            example_chunk,
-            self.c.local_embeds_dir,
-            self.c.hf_repo_embeds,
-        )
-
-        if len(res_list) == 0:
-            raise RuntimeError(f"Chunk {example_chunk} has no residuals.")
+        # Look at one chunk to infer [n_layers, d_model] after diffs
+        # Try multiple chunks in case early ones are empty
+        res_list = None
+        embeds_check = None
+        example_chunk = None
+        
+        for chunk_id in self.train_chunks[:10]:  # Try first 10 chunks
+            try:
+                res_list = load_residuals(
+                    chunk_id,
+                    self.c.local_residuals_dir,
+                    self.c.hf_repo_residuals,
+                )
+                embeds_check = load_embeds(
+                    chunk_id,
+                    self.c.local_embeds_dir,
+                    self.c.hf_repo_embeds,
+                )
+                
+                # Check if this chunk has actual data
+                if res_list and len(res_list) > 0 and embeds_check is not None and len(embeds_check) > 0:
+                    example_chunk = chunk_id
+                    print(f"Using chunk {example_chunk} to infer model dimensions")
+                    break
+                else:
+                    print(f"WARNING: Chunk {chunk_id} is empty, trying next...")
+            except Exception as e:
+                print(f"WARNING: Chunk {chunk_id} failed to load: {e}")
+                continue
+        
+        if example_chunk is None or not res_list or len(res_list) == 0:
+            raise RuntimeError(
+                f"Could not find a valid chunk with data in first 10 training chunks. "
+                f"Please check your data files."
+            )
 
         # res_all: [n_layers_raw, n_para, d_model]
         res_all = res_list[0]["res"]
@@ -124,7 +162,7 @@ class Trainer:
             f"  model_family = {self.c.model_family}"
         )
 
-        # 3) Initialize model, optimizer, scheduler, loss
+        # Initialize model, optimizer, scheduler, loss
         self.model = LinearProbe(
             n_layers=n_layers,
             d_model=d_model,
@@ -152,9 +190,6 @@ class Trainer:
             self._c_ns = SimpleNamespace(**self._config)
         return self._c_ns
 
-    # ---------------------------------------------------------------------
-    # Model-family detection
-    # ---------------------------------------------------------------------
     def _infer_model_family(self) -> str:
         """
         Infer model_family ('gemma', 'llama', or 'unknown') from the paths / repo names
@@ -178,9 +213,7 @@ class Trainer:
             return "gemma"
         return "unknown"
 
-    # ---------------------------------------------------------------------
     # residual PRE-diff transform
-    # ---------------------------------------------------------------------
     def _residual_pre_diffs(self, res_all: torch.Tensor) -> torch.Tensor:
         """
         Convert raw residual dump [n_layers_raw, n_para, d_model] into
@@ -199,7 +232,7 @@ class Trainer:
 
         family = getattr(self.c, "model_family", "unknown").lower()
 
-        # 2) Extract only resid_pre states, depending on model family
+        # Extract only resid_pre states, depending on model family
         if "llama" in family:
             # Pattern is [pre0, mid0, post0, pre1, mid1, post1, ...]
             # Keep only pre's at layer boundaries.
@@ -216,19 +249,17 @@ class Trainer:
                 f"Not enough residual states ({states.shape[0]}) to compute diffs."
             )
 
-        # 3) Compute diffs always TRUE:
+        # Compute diffs always TRUE:
         #    Δ[l] = pre[l+1] - pre[l]
         diffs = states[1:, :] - states[:-1, :]  # [n_layers_eff, d_model]
 
-        # 4) Optional layer limit
+        # Optional layer limit
         if self.c.limit_layers is not None:
             diffs = diffs[: self.c.limit_layers, :]
 
         return diffs
 
-    # ---------------------------------------------------------------------
     # Data loading per chunk
-    # ---------------------------------------------------------------------
     def _load_chunk_tensors(self, chunk_id: int):
         """
         Load a single chunk and return:
@@ -282,9 +313,7 @@ class Trainer:
         )
         return loader
 
-    # ---------------------------------------------------------------------
     # Training utilities
-    # ---------------------------------------------------------------------
     def _step_batch(self, x: torch.Tensor, y: torch.Tensor):
         """
         One optimization step on a batch.
@@ -309,11 +338,51 @@ class Trainer:
         train_loss_sum = 0.0
         train_mse_sum = 0.0
         n_batches = 0
+        skipped_chunks = []
 
-        pbar_chunks = tqdm(self.train_chunks, desc=f"Epoch {epoch+1} (chunks)")
+        # Optionally sample a subset of chunks for this epoch
+        chunks_per_epoch = getattr(self.c, "chunks_per_epoch", None)
+        if chunks_per_epoch is not None and chunks_per_epoch < len(self.train_chunks):
+            # Randomly sample without replacement
+            epoch_chunks = random.sample(self.train_chunks, chunks_per_epoch)
+            print(
+                f"\n Epoch {epoch+1}: Using {chunks_per_epoch}/{len(self.train_chunks)} randomly sampled chunks"
+            )
+            # Log sampled chunks to wandb for tracking
+            wandb.log(
+                {
+                    "epoch_chunks_sampled": chunks_per_epoch,
+                    "epoch_chunks_total": len(self.train_chunks),
+                },
+                step=self.global_step,
+            )
+        else:
+            epoch_chunks = self.train_chunks
+
+        # store + log exact epoch chunk IDs
+        self._last_epoch_chunks = epoch_chunks
+        chunk_str = ",".join(f"{c:03d}" for c in epoch_chunks)
+        print(f"  Epoch {epoch+1} chunks: {chunk_str}")
+        wandb.log(
+            {
+                "epoch/chunks_ids": chunk_str,
+                "epoch/chunks_count": len(epoch_chunks),
+            },
+            step=self.global_step,
+        )
+
+        pbar_chunks = tqdm(epoch_chunks, desc=f"Epoch {epoch+1} (chunks)")
+        chunks_seen = 0  # for intermediate validation
+
         for chunk_id in pbar_chunks:
-            loader = self._make_loader_for_chunk(chunk_id, shuffle=True)
-            if loader is None:
+            try:
+                loader = self._make_loader_for_chunk(chunk_id, shuffle=True)
+                if loader is None:
+                    skipped_chunks.append(chunk_id)
+                    continue
+            except Exception as e:
+                print(f"\n Skipping training chunk {chunk_id:03d}: {e}")
+                skipped_chunks.append(chunk_id)
                 continue
 
             pbar = tqdm(loader, leave=False, desc=f"Chunk {chunk_id:03d}")
@@ -332,18 +401,21 @@ class Trainer:
 
                 pbar.set_postfix({"loss": f"{avg_loss:.4f}", "mse": f"{avg_mse:.4f}"})
 
-                wandb.log(
-                    {
-                        "global_step": self.global_step,
-                        "train/loss": loss_val,
-                        "train/mse": mse_val,
-                        "train/epoch": epoch + 1,
-                        "train/chunk": chunk_id,
-                        "train/idx_start": int(batch_idx[0].item()),
-                        "train/idx_end": int(batch_idx[-1].item()),
-                    },
-                    step=self.global_step,
-                )
+                # Log to wandb only every N steps (if log_every_n_steps > 0)
+                log_every_n = getattr(self.c, "log_every_n_steps", 1)
+                if log_every_n > 0 and self.global_step % log_every_n == 0:
+                    wandb.log(
+                        {
+                            "global_step": self.global_step,
+                            "train/loss": loss_val,
+                            "train/mse": mse_val,
+                            "train/epoch": epoch + 1,
+                            "train/chunk": chunk_id,
+                            "train/idx_start": int(batch_idx[0].item()),
+                            "train/idx_end": int(batch_idx[-1].item()),
+                        },
+                        step=self.global_step,
+                    )
 
                 del batch_x, batch_y
 
@@ -351,10 +423,51 @@ class Trainer:
             gc.collect()
             torch.cuda.empty_cache()
 
+            # After finishing this chunk, increment chunks_seen and maybe run intermediate val
+            chunks_seen += 1
+            val_every = getattr(self.c, "val_every_chunks", None)
+            probe_chunk = getattr(self.c, "probe_val_chunk", None)
+
+            if val_every is not None and val_every > 0 and (chunks_seen % val_every == 0):
+                print(
+                    f"\n Intermediate validation after {chunks_seen} train chunks (epoch {epoch+1})"
+                )
+                if probe_chunk is not None:
+                    val_metrics = self.validate_on_chunk(probe_chunk)
+                    val_tag = f"intermediate/probe_chunk_{probe_chunk:03d}"
+                else:
+                    val_metrics = self.validate()
+                    val_tag = "intermediate/full_val"
+
+                wandb.log(
+                    {
+                        f"{val_tag}/val_loss": val_metrics["val_loss"],
+                        f"{val_tag}/val_mse": val_metrics["val_mse"],
+                        "intermediate/epoch": epoch + 1,
+                        "intermediate/chunks_seen_this_epoch": chunks_seen,
+                    },
+                    step=self.global_step,
+                )
+
         metrics = {
             "train_loss": train_loss_sum / max(n_batches, 1),
             "train_mse": train_mse_sum / max(n_batches, 1),
         }
+
+        chunks_used = len(epoch_chunks) - len(skipped_chunks)
+        if skipped_chunks or chunks_per_epoch is not None:
+            print(
+                f"\n Epoch {epoch+1} summary: {chunks_used}/{len(epoch_chunks)} chunks used successfully",
+                end="",
+            )
+            if skipped_chunks:
+                print(f", {len(skipped_chunks)} skipped", end="")
+            if chunks_per_epoch is not None:
+                print(
+                    f" (sampled from {len(self.train_chunks)} total train chunks)",
+                    end="",
+                )
+            print()
         return metrics
 
     @torch.no_grad()
@@ -364,14 +477,21 @@ class Trainer:
         val_mse_sum = 0.0
         total_samples = 0
         n_batches = 0
+        skipped_chunks = []
 
         if not self.val_chunks:
             return {"val_loss": float("nan"), "val_mse": float("nan")}
 
         pbar_chunks = tqdm(self.val_chunks, desc="Validation (chunks)")
         for chunk_id in pbar_chunks:
-            loader = self._make_loader_for_chunk(chunk_id, shuffle=False)
-            if loader is None:
+            try:
+                loader = self._make_loader_for_chunk(chunk_id, shuffle=False)
+                if loader is None:
+                    skipped_chunks.append(chunk_id)
+                    continue
+            except Exception as e:
+                print(f"\n Skipping validation chunk {chunk_id:03d}: {e}")
+                skipped_chunks.append(chunk_id)
                 continue
 
             pbar = tqdm(loader, leave=False, desc=f"Val chunk {chunk_id:03d}")
@@ -406,19 +526,163 @@ class Trainer:
         avg_loss = val_loss_sum / max(n_batches, 1)
         avg_mse = val_mse_sum / max(total_samples, 1)
 
+        if skipped_chunks:
+            print(
+                f"\n Validation summary: {len(self.val_chunks) - len(skipped_chunks)}/{len(self.val_chunks)} validation chunks used, {len(skipped_chunks)} skipped: {skipped_chunks}"
+            )
+
         metrics = {
             "val_loss": avg_loss,
             "val_mse": avg_mse,
         }
         return metrics
 
+    @torch.no_grad()
+    def validate_on_chunk(self, chunk_id: int) -> dict:
+        """
+        Run validation on a single chunk (no train/val split here, just loss).
+        Returns: {"val_loss": ..., "val_mse": ...}
+        """
+        self.model.eval()
+        val_loss_sum = 0.0
+        val_mse_sum = 0.0
+        total_samples = 0
+        n_batches = 0
+
+        try:
+            loader = self._make_loader_for_chunk(chunk_id, shuffle=False)
+            if loader is None:
+                print(f"[validate_on_chunk] No data for chunk {chunk_id:03d}")
+                return {"val_loss": float("nan"), "val_mse": float("nan")}
+        except Exception as e:
+            print(f"[validate_on_chunk] Skipping chunk {chunk_id:03d}: {e}")
+            return {"val_loss": float("nan"), "val_mse": float("nan")}
+
+        pbar = tqdm(loader, leave=False, desc=f"Probe val chunk {chunk_id:03d}")
+        for batch_x, batch_y, batch_idx in pbar:
+            batch_x = batch_x.to(self.device)
+            batch_y = batch_y.to(self.device)
+
+            x = self.normalizer_res.normalize(batch_x)
+            y = self.normalizer_emb.normalize(batch_y)
+
+            pred = self.model(x)
+            loss = self.criterion_mse(pred, y)
+            mse = ((pred - y) ** 2).mean().item()
+
+            bs = batch_x.shape[0]
+            val_loss_sum += loss.item()
+            val_mse_sum += mse * bs
+            total_samples += bs
+            n_batches += 1
+
+            avg_loss = val_loss_sum / max(n_batches, 1)
+            avg_mse = val_mse_sum / max(total_samples, 1)
+            pbar.set_postfix({"loss": f"{avg_loss:.4f}", "mse": f"{avg_mse:.4f}"})
+
+            del batch_x, batch_y, x, y, pred, loss
+
+        avg_loss = val_loss_sum / max(n_batches, 1)
+        avg_mse = val_mse_sum / max(total_samples, 1)
+
+        return {"val_loss": avg_loss, "val_mse": avg_mse}
+
     # ---------------------------------------------------------------------
     # Top-level train loop
     # ---------------------------------------------------------------------
-    def train(self):
-        torch.set_grad_enabled(True)
+    @torch.no_grad()
+    def compute_initial_metrics(self) -> dict:
+        """
+        Compute initial train and validation metrics before training starts.
+        Uses a single training chunk for efficiency.
+        """
+        self.model.eval()
+        
+        # Compute validation metrics (full validation set)
+        print("\nComputing initial validation metrics...")
+        val_metrics = self.validate()
+        
+        # Compute training metrics on first training chunk
+        print("Computing initial training metrics (first chunk only)...")
+        train_loss_sum = 0.0
+        train_mse_sum = 0.0
+        n_batches = 0
+        
+        # Use first training chunk
+        chunk_id = self.train_chunks[0]
+        try:
+            loader = self._make_loader_for_chunk(chunk_id, shuffle=False)
+            if loader is not None:
+                for batch_x, batch_y, _ in loader:
+                    batch_x = batch_x.to(self.device)
+                    batch_y = batch_y.to(self.device)
+                    
+                    # normalize
+                    x = self.normalizer_res.normalize(batch_x)
+                    y = self.normalizer_emb.normalize(batch_y)
+                    
+                    pred = self.model(x)
+                    loss = self.criterion_mse(pred, y)
+                    mse = ((pred - y) ** 2).mean().item()
+                    
+                    train_loss_sum += loss.item()
+                    train_mse_sum += mse
+                    n_batches += 1
+        except Exception as e:
+            print(f"Warning: Could not compute initial training metrics: {e}")
+            # Return NaN if we can't compute
+            return {
+                "train_loss": float("nan"),
+                "train_mse": float("nan"),
+                "val_loss": val_metrics["val_loss"],
+                "val_mse": val_metrics["val_mse"],
+            }
+        
+        if n_batches == 0:
+            train_loss = float("nan")
+            train_mse = float("nan")
+        else:
+            train_loss = train_loss_sum / n_batches
+            train_mse = train_mse_sum / n_batches
+        
+        return {
+            "train_loss": train_loss,
+            "train_mse": train_mse,
+            "val_loss": val_metrics["val_loss"],
+            "val_mse": val_metrics["val_mse"],
+        }
+    
+    def train(self, start_epoch: int = 0, checkpoint_every: int = 1):
+        """
+        Train the model.
 
-        for epoch in range(self.c.num_epochs):
+        Args:
+            start_epoch: Epoch to start from (for resuming)
+            checkpoint_every: Save checkpoint every N epochs
+        """
+        torch.set_grad_enabled(True)
+        
+        # Log initial metrics at step 0 (only for fresh training)
+        if start_epoch == 0:
+            initial_metrics = self.compute_initial_metrics()
+            wandb.log(
+                {
+                    "epoch": 0,
+                    "epoch/train_loss": initial_metrics["train_loss"],
+                    "epoch/train_mse": initial_metrics["train_mse"],
+                    "epoch/val_loss": initial_metrics["val_loss"],
+                    "epoch/val_mse": initial_metrics["val_mse"],
+                    "epoch/lr": self.scheduler.get_last_lr()[0],
+                },
+                step=0,
+            )
+            print(
+                f"\nInitial metrics (step 0): "
+                f"train_loss={initial_metrics['train_loss']:.4f}, "
+                f"val_loss={initial_metrics['val_loss']:.4f}"
+            )
+
+        for epoch in range(start_epoch, self.c.num_epochs):
             train_metrics = self.train_epoch(epoch)
             val_metrics = self.validate()
 
@@ -441,35 +705,80 @@ class Trainer:
 
             self.scheduler.step()
 
+            # Save checkpoint after each epoch (to wandb if enabled, locally otherwise)
+            if (epoch + 1) % checkpoint_every == 0:
+                save_to_wandb = getattr(self.c, "save_checkpoints_to_wandb", True)
+                
+                if save_to_wandb:
+                    # Save to wandb as artifact
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as tmp:
+                        self.save_checkpoint(tmp.name, epoch=epoch)
+                        tmp_path = tmp.name
+                    
+                    artifact = wandb.Artifact(
+                        name=f"checkpoint_epoch_{epoch+1}",
+                        type="model",
+                        description=f"Model checkpoint at epoch {epoch+1}"
+                    )
+                    artifact.add_file(tmp_path)
+                    wandb.log_artifact(artifact)
+                    
+                    # Clean up temp file
+                    os.remove(tmp_path)
+                    print(f"Checkpoint saved to wandb: epoch_{epoch+1}")
+                else:
+                    # Save locally
+                    ckpt_dir = self.c.checkpoint_dir
+                    epoch_ckpt = os.path.join(ckpt_dir, f"checkpoint_epoch_{epoch+1}.pkl")
+                    self.save_checkpoint(epoch_ckpt, epoch=epoch)
+                    print(f"Checkpoint saved locally: {epoch_ckpt}")
+
         return self.model
 
     # ---------------------------------------------------------------------
     # Checkpointing
     # ---------------------------------------------------------------------
-    def save_checkpoint(self, filename: str):
+    def save_checkpoint(self, filename: str, epoch: int = None):
         os.makedirs(os.path.dirname(filename), exist_ok=True)
+        checkpoint = {
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "scheduler": self.scheduler.state_dict(),
+            "config": self._config,
+            "res_norm_mean": self.normalizer_res.mean.cpu(),
+            "res_norm_std": self.normalizer_res.std.cpu(),
+            "emb_norm_mean": self.normalizer_emb.mean.cpu(),
+            "emb_norm_std": self.normalizer_emb.std.cpu(),
+            "global_step": self.global_step,
+        }
+        if epoch is not None:
+            checkpoint["epoch"] = epoch
+
         with open(filename, "wb") as f:
-            pickle.dump(
-                {
-                    "model": self.model.state_dict(),
-                    "config": self._config,
-                    "res_norm_mean": self.normalizer_res.mean.cpu(),
-                    "res_norm_std": self.normalizer_res.std.cpu(),
-                    "emb_norm_mean": self.normalizer_emb.mean.cpu(),
-                    "emb_norm_std": self.normalizer_emb.std.cpu(),
-                },
-                f,
-            )
+            pickle.dump(checkpoint, f)
 
     @classmethod
     def load_checkpoint(cls, filename: str, device: torch.device):
+        print(f"\nLoading checkpoint from: {filename}")
         with open(filename, "rb") as f:
             ckpt = pickle.load(f)
 
         config = ckpt["config"]
         trainer = cls(config, device)
 
+        # Load model state
         trainer.model.load_state_dict(ckpt["model"])
+
+        # Load optimizer and scheduler if available
+        if "optimizer" in ckpt:
+            trainer.optimizer.load_state_dict(ckpt["optimizer"])
+        if "scheduler" in ckpt:
+            trainer.scheduler.load_state_dict(ckpt["scheduler"])
+        if "global_step" in ckpt:
+            trainer.global_step = ckpt["global_step"]
+
+        # Load normalizers
         trainer.normalizer_res = Normalizer(
             mean=ckpt["res_norm_mean"].to(device),
             std=ckpt["res_norm_std"].to(device),
@@ -479,4 +788,7 @@ class Trainer:
             std=ckpt["emb_norm_std"].to(device),
         )
 
-        return trainer
+        start_epoch = ckpt.get("epoch", -1) + 1
+        print(f"Checkpoint loaded. Resuming from epoch {start_epoch}")
+
+        return trainer, start_epoch
